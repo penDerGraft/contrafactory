@@ -117,7 +117,10 @@ func ValidateAddress(addr string) error {
 	}
 	// Check hex characters
 	for _, c := range addr[2:] {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+		isDigit := c >= '0' && c <= '9'
+		isLowerHex := c >= 'a' && c <= 'f'
+		isUpperHex := c >= 'A' && c <= 'F'
+		if !isDigit && !isLowerHex && !isUpperHex {
 			return errors.New("invalid address: contains non-hex characters")
 		}
 	}

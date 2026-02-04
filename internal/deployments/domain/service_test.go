@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pendergraft/contrafactory/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pendergraft/contrafactory/internal/storage"
 )
 
 // mockStore implements storage.Store for testing
@@ -260,10 +261,10 @@ func TestService_UpdateVerificationStatus(t *testing.T) {
 
 func TestToDeployment_TimestampParsing(t *testing.T) {
 	tests := []struct {
-		name          string
-		createdAt     string
-		wantYear      int
-		wantZeroTime  bool
+		name         string
+		createdAt    string
+		wantYear     int
+		wantZeroTime bool
 	}{
 		{
 			name:         "valid datetime",

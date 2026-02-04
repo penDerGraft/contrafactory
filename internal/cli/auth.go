@@ -133,8 +133,8 @@ func runAuthLogin(serverURL, apiKeyInput string) error {
 		fmt.Printf("Enter API key for %s: ", serverURL)
 
 		// Try to read password without echo
-		if term.IsTerminal(int(syscall.Stdin)) {
-			byteKey, err := term.ReadPassword(int(syscall.Stdin))
+		if term.IsTerminal(syscall.Stdin) {
+			byteKey, err := term.ReadPassword(syscall.Stdin)
 			fmt.Println() // New line after password input
 			if err != nil {
 				return fmt.Errorf("failed to read API key: %w", err)

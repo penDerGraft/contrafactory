@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+
 	"github.com/pendergraft/contrafactory/internal/auth"
 	"github.com/pendergraft/contrafactory/internal/packages/domain"
 )

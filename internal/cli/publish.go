@@ -12,9 +12,10 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/spf13/cobra"
+
 	"github.com/pendergraft/contrafactory/internal/chains"
 	"github.com/pendergraft/contrafactory/internal/chains/evm/foundry"
-	"github.com/spf13/cobra"
 )
 
 // PublishRequest matches the server's expected format
@@ -95,7 +96,7 @@ func runPublish(version, prefix string, contracts []string, dryRun bool) error {
 		return fmt.Errorf("detecting builder: %w", err)
 	}
 	if !detected {
-		return fmt.Errorf("no Foundry project detected (missing foundry.toml)\n\nCurrently only Foundry projects are supported.\nMake sure you're running this command from your project root.")
+		return fmt.Errorf("no Foundry project detected (missing foundry.toml) - currently only Foundry projects are supported")
 	}
 
 	fmt.Printf("📦 Detected Foundry project in %s\n", cwd)
@@ -105,11 +106,11 @@ func runPublish(version, prefix string, contracts []string, dryRun bool) error {
 	discoverOpts := chains.DiscoverOptions{
 		Contracts: contracts,
 		Exclude: []string{
-			"Test",    // *Test contracts
-			"Script",  // *Script contracts
-			"Mock",    // Mock* contracts
-			"Deploy",  // Deploy* scripts
-			"Setup",   // *Setup test helpers
+			"Test",   // *Test contracts
+			"Script", // *Script contracts
+			"Mock",   // Mock* contracts
+			"Deploy", // Deploy* scripts
+			"Setup",  // *Setup test helpers
 		},
 	}
 

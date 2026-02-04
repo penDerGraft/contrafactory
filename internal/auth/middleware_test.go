@@ -6,9 +6,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/pendergraft/contrafactory/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pendergraft/contrafactory/internal/storage"
 )
 
 type mockAPIKeyStore struct {

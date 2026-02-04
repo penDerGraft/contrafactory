@@ -45,3 +45,7 @@ dist/
 
 # Air hot-reload
 tmp/
+
+# Helm chart dependencies
+charts/*/charts/
+*.tgz

@@ -194,9 +194,7 @@ func (b *Builder) Parse(artifactPath string) (*chains.Artifact, error) {
 	// Parse metadata
 	var metadata FoundryMetadata
 	if raw.RawMetadata != "" {
-		if err := json.Unmarshal([]byte(raw.RawMetadata), &metadata); err != nil {
-			// Non-fatal, continue without metadata
-		}
+		_ = json.Unmarshal([]byte(raw.RawMetadata), &metadata) // Non-fatal, continue without metadata
 	}
 
 	// Extract contract name from path

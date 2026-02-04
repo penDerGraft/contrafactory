@@ -12,10 +12,11 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/pendergraft/contrafactory/internal/config"
 	"github.com/pendergraft/contrafactory/internal/server"
 	"github.com/pendergraft/contrafactory/internal/storage"
-	"github.com/spf13/cobra"
 )
 
 var version = "dev"

@@ -8,9 +8,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/pendergraft/contrafactory/pkg/client"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
+
+	"github.com/pendergraft/contrafactory/pkg/client"
 )
 
 func createListCmd() *cobra.Command {

@@ -9,8 +9,9 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/pendergraft/contrafactory/pkg/client"
 	"github.com/spf13/cobra"
+
+	"github.com/pendergraft/contrafactory/pkg/client"
 )
 
 func createDeploymentCmd() *cobra.Command {

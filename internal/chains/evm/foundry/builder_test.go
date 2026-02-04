@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pendergraft/contrafactory/internal/chains"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pendergraft/contrafactory/internal/chains"
 )
 
 func TestBuilder_Metadata(t *testing.T) {

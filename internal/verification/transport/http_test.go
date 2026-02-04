@@ -9,9 +9,10 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/pendergraft/contrafactory/internal/verification/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pendergraft/contrafactory/internal/verification/domain"
 )
 
 // mockService implements domain.Service for testing

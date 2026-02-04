@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pendergraft/contrafactory/pkg/client"
 	"github.com/spf13/cobra"
+
+	"github.com/pendergraft/contrafactory/pkg/client"
 )
 
 func createInfoCmd() *cobra.Command {
@@ -46,13 +47,14 @@ func runInfo(ref string, jsonOutput bool) error {
 	ctx := context.Background()
 
 	// Check if version is specified
-	name, version, _, err := parsePackageRef(ref + "@dummy") // Trick to use parsePackageRef
-	if err == nil && version != "dummy" {
+	var name, version string
+	parsedName, parsedVersion, _, err := parsePackageRef(ref + "@dummy") // Trick to use parsePackageRef
+	if err == nil && parsedVersion != "dummy" {
 		// Has version
 		name, version, _, _ = parsePackageRef(ref)
 	} else {
 		// No version - just package name
-		name = ref
+		name = parsedName
 		version = ""
 	}
 
