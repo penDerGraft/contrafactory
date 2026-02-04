@@ -42,10 +42,9 @@ jobs:
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.0.2
-          args: --out-format=colored-line-number
 
   integration:
     name: Integration Tests
