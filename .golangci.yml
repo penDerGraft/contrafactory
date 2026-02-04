@@ -13,6 +13,9 @@ linters:
     - unused
     - misspell
     - unconvert
+  settings:
+    misspell:
+      locale: US
 
 formatters:
   enable:
@@ -22,7 +25,3 @@ formatters:
     goimports:
       local-prefixes:
         - github.com/pendergraft/contrafactory
-
-linters-settings:
-  misspell:
-    locale: US
