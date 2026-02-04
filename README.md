@@ -140,14 +140,11 @@ volumes:
 ### Kubernetes with Helm
 
 ```bash
-helm repo add contrafactory https://pendergraft.github.io/contrafactory
-helm repo update
-
 # Basic install with SQLite (ephemeral, for testing)
-helm install contrafactory contrafactory/contrafactory
+helm install contrafactory oci://ghcr.io/pendergraft/charts/contrafactory
 
 # Production install with Postgres
-helm install contrafactory contrafactory/contrafactory \
+helm install contrafactory oci://ghcr.io/pendergraft/charts/contrafactory \
   --set storage.type=postgres \
   --set postgresql.enabled=true \
   --set auth.type=api-key
@@ -156,7 +153,7 @@ helm install contrafactory contrafactory/contrafactory \
 With an external Postgres database:
 
 ```bash
-helm install contrafactory contrafactory/contrafactory \
+helm install contrafactory oci://ghcr.io/pendergraft/charts/contrafactory \
   --set storage.type=postgres \
   --set postgresql.enabled=false \
   --set externalDatabase.host=your-postgres-host \

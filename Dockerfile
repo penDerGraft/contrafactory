@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
 
@@ -12,8 +12,7 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build both binaries
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/contrafactory ./cmd/contrafactory
+# Build server binary
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/contrafactory-server ./cmd/contrafactory-server
 
 # Final stage
@@ -26,8 +25,7 @@ RUN addgroup -S contrafactory && adduser -S contrafactory -G contrafactory
 
 WORKDIR /app
 
-# Copy binaries from builder
-COPY --from=builder /bin/contrafactory /usr/local/bin/contrafactory
+# Copy server binary from builder
 COPY --from=builder /bin/contrafactory-server /usr/local/bin/contrafactory-server
 
 # Create data directory
