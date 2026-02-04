@@ -1,0 +1,35 @@
+services:
+  server:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://contrafactory:contrafactory@postgres:5432/contrafactory?sslmode=disable
+      - LOG_LEVEL=debug
+      - LOG_FORMAT=text
+    volumes:
+      - server-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: contrafactory
+      POSTGRES_PASSWORD: contrafactory
+      POSTGRES_DB: contrafactory
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contrafactory"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  server-data:
+  postgres-data:

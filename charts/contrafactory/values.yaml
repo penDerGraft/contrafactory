@@ -1,0 +1,176 @@
+# Default values for contrafactory
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/pendergraft/contrafactory
+  pullPolicy: IfNotPresent
+  tag: ""  # Defaults to Chart appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: contrafactory.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: contrafactory-tls
+  #    hosts:
+  #      - contrafactory.local
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Server configuration
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+# Storage configuration
+storage:
+  type: sqlite  # sqlite or postgres
+
+  # SQLite configuration (for single-instance deployments)
+  sqlite:
+    path: /app/data/contrafactory.db
+
+  # External Postgres configuration (when postgresql.enabled=false)
+  postgres:
+    # Use existingSecret to reference a secret containing DATABASE_URL
+    existingSecret: ""
+    existingSecretKey: "DATABASE_URL"
+    # Or specify the URL directly (not recommended for production)
+    url: ""
+
+  # Blob storage configuration
+  blobs:
+    type: ""  # postgres, filesystem, s3 (defaults to storage.type)
+    # Filesystem configuration
+    filesystem:
+      path: /app/data/blobs
+    # S3 configuration
+    s3:
+      bucket: ""
+      region: ""
+      endpoint: ""  # For S3-compatible storage
+
+# Authentication configuration
+auth:
+  type: api-key  # none or api-key
+
+# Logging configuration
+logging:
+  level: info
+  format: json
+
+# Cache configuration
+cache:
+  enabled: true
+  maxSizeMB: 100
+  ttlSeconds: 3600
+
+# Persistence (for SQLite and filesystem blob storage)
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+
+# PostgreSQL subchart configuration
+# https://github.com/bitnami/charts/tree/main/bitnami/postgresql
+postgresql:
+  enabled: false
+  auth:
+    username: contrafactory
+    password: ""  # Set this or use existingSecret
+    database: contrafactory
+    existingSecret: ""
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# Extra environment variables
+extraEnv: []
+  # - name: EXTRA_VAR
+  #   value: "value"
+
+# Extra volumes
+extraVolumes: []
+
+# Extra volume mounts
+extraVolumeMounts: []

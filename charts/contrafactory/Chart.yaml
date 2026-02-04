@@ -1,0 +1,22 @@
+apiVersion: v2
+name: contrafactory
+description: A Helm chart for Contrafactory - Smart Contract Artifact Registry
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - smart-contracts
+  - ethereum
+  - evm
+  - solidity
+  - artifact-registry
+home: https://github.com/pendergraft/contrafactory
+sources:
+  - https://github.com/pendergraft/contrafactory
+maintainers:
+  - name: pendergraft
+dependencies:
+  - name: postgresql
+    version: "~15.5"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
