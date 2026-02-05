@@ -430,10 +430,10 @@ func TestMultipleServersCredentials(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 
 	servers := map[string]string{
-		"http://server1:8080":                "key1",
-		"http://server2:8080":                "key2",
-		"https://contrafactory.example.com":  "prod-key",
-		"http://localhost:8080":              "local-key",
+		"http://server1:8080":               "key1",
+		"http://server2:8080":               "key2",
+		"https://contrafactory.example.com": "prod-key",
+		"http://localhost:8080":             "local-key",
 	}
 
 	// Save all credentials
