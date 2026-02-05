@@ -174,3 +174,35 @@ extraVolumes: []
 
 # Extra volume mounts
 extraVolumeMounts: []
+
+# Prometheus metrics configuration
+metrics:
+  # Path where metrics are exposed
+  path: /metrics
+  # Scrape interval for Prometheus
+  interval: 30s
+  # PodMonitor for Prometheus Operator
+  podMonitor:
+    enabled: false
+    # Additional labels for the PodMonitor
+    labels: {}
+
+# Extra arbitrary Kubernetes resources to deploy alongside the chart
+# Useful for injecting secrets, configmaps, or any custom resources
+extra:
+  extraResources: []
+  # Example: inject an ExternalSecret for database credentials
+  # - apiVersion: external-secrets.io/v1beta1
+  #   kind: ExternalSecret
+  #   metadata:
+  #     name: my-db-secret
+  #   spec:
+  #     secretStoreRef:
+  #       name: my-secret-store
+  #       kind: ClusterSecretStore
+  #     target:
+  #       name: my-db-secret
+  #     data:
+  #       - secretKey: DATABASE_URL
+  #         remoteRef:
+  #           key: my-database-credentials

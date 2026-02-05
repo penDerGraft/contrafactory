@@ -1,0 +1,14 @@
+{{- /*
+  Extra Resources Template
+  
+  This template allows users to inject arbitrary Kubernetes resources
+  alongside the chart deployment. Useful for:
+  - ExternalSecrets for secret management
+  - ConfigMaps with custom configuration
+  - NetworkPolicies
+  - Any other Kubernetes resources
+*/ -}}
+{{- range .Values.extra.extraResources }}
+---
+{{ toYaml . }}
+{{- end }}

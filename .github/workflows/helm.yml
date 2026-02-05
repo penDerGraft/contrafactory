@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'charts/**'
+    tags:
+      - 'chart-v*'
   pull_request:
     branches: [main]
     paths:
@@ -27,7 +29,7 @@ jobs:
         run: helm dependency build charts/contrafactory
 
       - name: Lint chart
-        run: helm lint charts/contrafactory
+        run: helm lint charts/contrafactory --strict
 
       - name: Template chart
         run: helm template test charts/contrafactory
@@ -36,7 +38,8 @@ jobs:
     name: Release Helm Chart
     needs: lint
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    # Only release on version tags
+    if: startsWith(github.ref, 'refs/tags/chart-v')
     permissions:
       contents: read
       packages: write
@@ -48,6 +51,28 @@ jobs:
         with:
           version: v3.14.0
 
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/chart-v}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Chart version: ${VERSION}"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+            echo "Error: Version '$VERSION' does not match semver format (e.g., 1.0.0 or 1.0.0-beta1)"
+            exit 1
+          fi
+
+      - name: Update Chart.yaml version
+        run: |
+          sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" charts/contrafactory/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" charts/contrafactory/Chart.yaml
+          echo "Updated Chart.yaml:"
+          cat charts/contrafactory/Chart.yaml
+
       - name: Build dependencies
         run: helm dependency build charts/contrafactory
 
@@ -55,8 +80,25 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Package chart
-        run: helm package charts/contrafactory
+        run: |
+          helm package charts/contrafactory --version ${{ steps.version.outputs.version }}
+          ls -la contrafactory-*.tgz
 
       - name: Push chart to GHCR
         run: |
-          helm push contrafactory-*.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+          CHART_PACKAGE="contrafactory-${{ steps.version.outputs.version }}.tgz"
+          echo "Pushing ${CHART_PACKAGE} to ghcr.io/${{ github.repository_owner }}"
+          helm push "${CHART_PACKAGE}" oci://ghcr.io/${{ github.repository_owner }}
+
+      - name: Summary
+        run: |
+          echo "## Helm Chart Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart:** contrafactory" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** ghcr.io/${{ github.repository_owner }}/contrafactory" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Install" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "helm install contrafactory oci://ghcr.io/${{ github.repository_owner }}/contrafactory --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
