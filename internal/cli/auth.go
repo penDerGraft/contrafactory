@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -133,8 +132,9 @@ func runAuthLogin(serverURL, apiKeyInput string) error {
 		fmt.Printf("Enter API key for %s: ", serverURL)
 
 		// Try to read password without echo
-		if term.IsTerminal(syscall.Stdin) {
-			byteKey, err := term.ReadPassword(syscall.Stdin)
+		stdinFd := int(os.Stdin.Fd())
+		if term.IsTerminal(stdinFd) {
+			byteKey, err := term.ReadPassword(stdinFd)
 			fmt.Println() // New line after password input
 			if err != nil {
 				return fmt.Errorf("failed to read API key: %w", err)
