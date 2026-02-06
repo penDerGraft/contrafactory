@@ -57,6 +57,9 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Chart version: ${VERSION}"
+          # OCI registries require lowercase
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "owner_lc=${OWNER_LC}" >> $GITHUB_OUTPUT
 
       - name: Validate version format
         run: |
@@ -87,8 +90,8 @@ jobs:
       - name: Push chart to GHCR
         run: |
           CHART_PACKAGE="contrafactory-${{ steps.version.outputs.version }}.tgz"
-          echo "Pushing ${CHART_PACKAGE} to ghcr.io/${{ github.repository_owner }}"
-          helm push "${CHART_PACKAGE}" oci://ghcr.io/${{ github.repository_owner }}
+          echo "Pushing ${CHART_PACKAGE} to ghcr.io/${{ steps.version.outputs.owner_lc }}"
+          helm push "${CHART_PACKAGE}" oci://ghcr.io/${{ steps.version.outputs.owner_lc }}
 
       - name: Summary
         run: |
@@ -96,9 +99,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Chart:** contrafactory" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Registry:** ghcr.io/${{ github.repository_owner }}/contrafactory" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** ghcr.io/${{ steps.version.outputs.owner_lc }}/contrafactory" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Install" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "helm install contrafactory oci://ghcr.io/${{ github.repository_owner }}/contrafactory --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "helm install contrafactory oci://ghcr.io/${{ steps.version.outputs.owner_lc }}/contrafactory --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

@@ -8,17 +8,24 @@ import (
 
 // Config holds all configuration for the server
 type Config struct {
-	Server  ServerConfig
-	Storage StorageConfig
-	Auth    AuthConfig
-	Cache   CacheConfig
-	Logging LoggingConfig
+	Server    ServerConfig
+	Storage   StorageConfig
+	Auth      AuthConfig
+	Cache     CacheConfig
+	Logging   LoggingConfig
+	RateLimit RateLimitConfig
+	Security  SecurityConfig
+	Proxy     ProxyConfig
 }
 
 // ServerConfig holds HTTP server configuration
 type ServerConfig struct {
-	Port int
-	Host string
+	Port           int
+	Host           string
+	ReadTimeout    int // seconds
+	WriteTimeout   int // seconds
+	IdleTimeout    int // seconds
+	RequestTimeout int // seconds
 }
 
 // StorageConfig holds storage configuration
@@ -63,12 +70,36 @@ type LoggingConfig struct {
 	Format string // "text" or "json"
 }
 
+// RateLimitConfig holds rate limiting settings
+type RateLimitConfig struct {
+	Enabled        bool
+	RequestsPerMin int
+	BurstSize      int
+	CleanupMinutes int
+}
+
+// SecurityConfig holds security filter settings
+type SecurityConfig struct {
+	FilterEnabled bool
+	MaxBodySizeMB int
+}
+
+// ProxyConfig holds trusted proxy settings for X-Forwarded-For handling
+type ProxyConfig struct {
+	TrustProxy     bool
+	TrustedProxies []string // CIDR notation
+}
+
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
-			Port: getEnvInt("PORT", 8080),
-			Host: getEnv("HOST", "0.0.0.0"),
+			Port:           getEnvInt("PORT", 8080),
+			Host:           getEnv("HOST", "0.0.0.0"),
+			ReadTimeout:    getEnvInt("SERVER_READ_TIMEOUT", 30),
+			WriteTimeout:   getEnvInt("SERVER_WRITE_TIMEOUT", 60),
+			IdleTimeout:    getEnvInt("SERVER_IDLE_TIMEOUT", 120),
+			RequestTimeout: getEnvInt("SERVER_REQUEST_TIMEOUT", 30),
 		},
 		Storage: StorageConfig{
 			Type: getEnv("STORAGE_TYPE", "sqlite"),
@@ -93,7 +124,21 @@ func Load() (*Config, error) {
 		},
 		Logging: LoggingConfig{
 			Level:  getEnv("LOG_LEVEL", "info"),
-			Format: getEnv("LOG_FORMAT", "text"),
+			Format: getEnv("LOG_FORMAT", "json"),
+		},
+		RateLimit: RateLimitConfig{
+			Enabled:        getEnvBool("RATE_LIMIT_ENABLED", true),
+			RequestsPerMin: getEnvInt("RATE_LIMIT_RPM", 300),
+			BurstSize:      getEnvInt("RATE_LIMIT_BURST", 50),
+			CleanupMinutes: getEnvInt("RATE_LIMIT_CLEANUP_MINUTES", 10),
+		},
+		Security: SecurityConfig{
+			FilterEnabled: getEnvBool("SECURITY_FILTER_ENABLED", true),
+			MaxBodySizeMB: getEnvInt("SECURITY_MAX_BODY_SIZE_MB", 50),
+		},
+		Proxy: ProxyConfig{
+			TrustProxy:     getEnvBool("TRUST_PROXY", false),
+			TrustedProxies: getEnvStringSlice("TRUSTED_PROXIES", []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}),
 		},
 	}
 
@@ -129,6 +174,22 @@ func getEnvInt(key string, defaultValue int) int {
 func getEnvBool(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		return strings.ToLower(value) == "true" || value == "1"
+	}
+	return defaultValue
+}
+
+func getEnvStringSlice(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		parts := strings.Split(value, ",")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		if len(result) > 0 {
+			return result
+		}
 	}
 	return defaultValue
 }

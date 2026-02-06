@@ -15,6 +15,10 @@ import (
 	"github.com/pendergraft/contrafactory/internal/config"
 	deploymentsDomain "github.com/pendergraft/contrafactory/internal/deployments/domain"
 	deploymentsTransport "github.com/pendergraft/contrafactory/internal/deployments/transport"
+	"github.com/pendergraft/contrafactory/internal/middleware/logging"
+	"github.com/pendergraft/contrafactory/internal/middleware/ratelimit"
+	"github.com/pendergraft/contrafactory/internal/middleware/realip"
+	"github.com/pendergraft/contrafactory/internal/middleware/security"
 	packagesDomain "github.com/pendergraft/contrafactory/internal/packages/domain"
 	packagesTransport "github.com/pendergraft/contrafactory/internal/packages/transport"
 	"github.com/pendergraft/contrafactory/internal/storage"
@@ -68,10 +72,35 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) setupMiddleware() {
+	// Order matters! Security middleware runs first to block malicious requests early.
+
+	// 1. Real IP extraction (must be first to set client IP for other middleware)
+	s.router.Use(realip.Middleware(realip.Config{
+		TrustProxy:     s.cfg.Proxy.TrustProxy,
+		TrustedProxies: s.cfg.Proxy.TrustedProxies,
+	}))
+
+	// 2. Security filter (blocks malicious patterns, bypasses health checks)
+	s.router.Use(security.FilterMiddleware(s.cfg.Security.FilterEnabled))
+
+	// 3. Body size limit
+	s.router.Use(security.MaxBodySizeMiddleware(s.cfg.Security.MaxBodySizeMB))
+
+	// 4. Rate limiting (bypasses health checks)
+	s.router.Use(ratelimit.Middleware(ratelimit.Config{
+		Enabled:        s.cfg.RateLimit.Enabled,
+		RequestsPerMin: s.cfg.RateLimit.RequestsPerMin,
+		BurstSize:      s.cfg.RateLimit.BurstSize,
+		CleanupMinutes: s.cfg.RateLimit.CleanupMinutes,
+	}))
+
+	// 5. Standard middleware
 	s.router.Use(middleware.RequestID)
-	s.router.Use(NewLoggingMiddleware(s.logger))
+	s.router.Use(logging.Middleware(s.logger))
 	s.router.Use(middleware.Recoverer)
 	s.router.Use(middleware.Compress(5))
+
+	// 6. CORS
 	s.router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")

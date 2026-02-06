@@ -63,6 +63,34 @@ spec:
               value: {{ .Values.cache.maxSizeMB | quote }}
             - name: CACHE_TTL_SECONDS
               value: {{ .Values.cache.ttlSeconds | quote }}
+            # Rate limiting
+            - name: RATE_LIMIT_ENABLED
+              value: {{ .Values.rateLimit.enabled | quote }}
+            - name: RATE_LIMIT_RPM
+              value: {{ .Values.rateLimit.requestsPerMin | quote }}
+            - name: RATE_LIMIT_BURST
+              value: {{ .Values.rateLimit.burstSize | quote }}
+            - name: RATE_LIMIT_CLEANUP_MINUTES
+              value: {{ .Values.rateLimit.cleanupMinutes | quote }}
+            # Security
+            - name: SECURITY_FILTER_ENABLED
+              value: {{ .Values.security.filterEnabled | quote }}
+            - name: SECURITY_MAX_BODY_SIZE_MB
+              value: {{ .Values.security.maxBodySizeMB | quote }}
+            # Proxy / Real IP
+            - name: TRUST_PROXY
+              value: {{ .Values.proxy.trustProxy | quote }}
+            - name: TRUSTED_PROXIES
+              value: {{ .Values.proxy.trustedProxies | join "," | quote }}
+            # Server timeouts
+            - name: SERVER_READ_TIMEOUT
+              value: {{ .Values.serverTimeouts.readTimeout | quote }}
+            - name: SERVER_WRITE_TIMEOUT
+              value: {{ .Values.serverTimeouts.writeTimeout | quote }}
+            - name: SERVER_IDLE_TIMEOUT
+              value: {{ .Values.serverTimeouts.idleTimeout | quote }}
+            - name: SERVER_REQUEST_TIMEOUT
+              value: {{ .Values.serverTimeouts.requestTimeout | quote }}
             {{- if eq .Values.storage.type "sqlite" }}
             - name: STORAGE_TYPE
               value: "sqlite"

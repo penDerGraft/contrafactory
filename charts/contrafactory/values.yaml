@@ -135,6 +135,35 @@ cache:
   maxSizeMB: 100
   ttlSeconds: 3600
 
+# Rate limiting configuration
+rateLimit:
+  enabled: true
+  requestsPerMin: 300
+  burstSize: 50
+  cleanupMinutes: 10
+
+# Security configuration
+security:
+  filterEnabled: true
+  maxBodySizeMB: 50
+
+# Proxy configuration (for deployments behind load balancers)
+proxy:
+  # Enable to parse X-Forwarded-For headers for real client IP
+  trustProxy: true
+  # CIDR ranges of trusted proxies (comma-separated in env var)
+  trustedProxies:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+
+# Server timeout configuration (in seconds)
+serverTimeouts:
+  readTimeout: 30
+  writeTimeout: 60
+  idleTimeout: 120
+  requestTimeout: 30
+
 # Persistence (for SQLite and filesystem blob storage)
 persistence:
   enabled: true
