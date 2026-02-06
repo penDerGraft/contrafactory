@@ -103,7 +103,6 @@ func TestFilterMiddleware_BlocksPathTraversal(t *testing.T) {
 	}
 }
 
-
 func TestFilterMiddleware_BypassesHealthChecks(t *testing.T) {
 	handler := FilterMiddleware(true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

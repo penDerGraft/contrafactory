@@ -10,9 +10,10 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/pendergraft/contrafactory/internal/middleware/realip"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pendergraft/contrafactory/internal/middleware/realip"
 )
 
 // testHandler returns a handler that writes a response with the given status and body

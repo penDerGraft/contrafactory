@@ -217,10 +217,10 @@ func TestIsTrustedProxy(t *testing.T) {
 		{"172.31.255.255", true},
 		{"192.168.0.1", true},
 		{"192.168.255.255", true},
-		{"203.0.113.50", false},  // Public IP
-		{"8.8.8.8", false},       // Google DNS
-		{"172.32.0.1", false},    // Just outside 172.16/12
-		{"invalid", false},       // Invalid IP
+		{"203.0.113.50", false}, // Public IP
+		{"8.8.8.8", false},      // Google DNS
+		{"172.32.0.1", false},   // Just outside 172.16/12
+		{"invalid", false},      // Invalid IP
 	}
 
 	for _, tt := range tests {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+
 	"github.com/pendergraft/contrafactory/internal/middleware/realip"
 )
 
