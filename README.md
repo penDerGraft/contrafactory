@@ -15,17 +15,25 @@ contrafactory fetch my-token@1.0.0 --only abi
 
 You might not. Etherscan stores verified source code. NPM can hold ABIs. GitHub releases work for some teams. These are fine solutions.
 
+NPM is a common workaround for contract artifact distribution, but it's designed for JavaScript packages, not smart contracts. Contrafactory provides:
+- Chain-aware organization (NPM has no concept of chain ID or network)
+- Compiler settings and storage layouts (NPM doesn't track verification metadata)
+- Artifact types specific to smart contracts (deployed bytecode, Standard JSON Input)
+
 Contrafactory is mostly about separating build and deploy into discrete steps.
 
 Some contract workflows look like: build → deploy → verify → hope you saved the right files. The build artifacts live in a local `out/` folder until deployment, then scatter to block explorers, deployment logs, and wherever else you remember to put them.
 
 Contrafactory flips this: build → publish → deploy whenever. Your artifacts exist independently of any deployment. This is a standard DevOps pattern that unlocks several key workflows:
 
+- **Golden Binary** — CI builds once, producing an immutable binary that is exactly what gets audited, tested, and deployed. Eliminates bytecode discrepancies from different machines, compiler versions, or build environments.
 - **Rollbacks** — Deploy a previous version without recreating the build environment
 - **Version pinning** — CI can block deploys of versions with known issues
 - **Minimal deploy scripts** — Just reference a version, no build step required
 - **Consistent verification** — Same metadata for Etherscan, Sourcify, or any explorer
 - **Audit snapshots** — Tag and store the exact bytecode that was audited
+- **Storage layout planning** — Fetch storage layouts from different versions to prevent storage collisions in upgradeable contracts
+- **CI caching** — Pre-built artifacts can speed up CI by avoiding recompilation of unchanged dependencies
 
 The core idea: your contract artifacts should be a versioned, immutable record that exists before deployment and persists after.
 
@@ -36,10 +44,13 @@ For each contract version:
 - ABI
 - Bytecode and deployed bytecode
 - Standard JSON Input (for block explorer verification)
-- Compiler version and settings
+- Compiler version and settings — including optimizer config, EVM version, viaIR flag, and other settings that affect bytecode
+- Storage layout — JSON representation of contract storage for upgradeable contract planning
 - Source file mappings
 
-Everything a block explorer needs, captured at build time.
+Everything a block explorer needs, captured at build time. Verification won't fail due to mismatched settings.
+
+**Library linking:** Artifacts are stored unlinked (with library placeholders like `__$53aea86b7d70b3144896f35af__` intact). Library addresses are provided at deployment time and substituted when comparing bytecode for verification.
 
 ## Quick Start
 
@@ -71,6 +82,9 @@ contrafactory fetch my-token@1.0.0
 
 # Just the ABI
 contrafactory fetch my-token@1.0.0 --only abi
+
+# Storage layout (for upgradeable contract planning)
+contrafactory fetch my-token@1.0.0 --only storage-layout
 ```
 
 **Track deployments:**

@@ -83,6 +83,7 @@ type EVMArtifact struct {
 	Bytecode          string          `json:"bytecode"`
 	DeployedBytecode  string          `json:"deployedBytecode"`
 	StandardJSONInput json.RawMessage `json:"standardJsonInput,omitempty"`
+	StorageLayout     json.RawMessage `json:"storageLayout,omitempty"`
 	Compiler          EVMCompiler     `json:"compiler"`
 }
 

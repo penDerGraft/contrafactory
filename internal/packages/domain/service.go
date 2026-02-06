@@ -97,12 +97,13 @@ func (s *service) Publish(ctx context.Context, name, version string, ownerID str
 
 	// Create package
 	pkg := &storage.Package{
-		ID:      generateID(),
-		Name:    name,
-		Version: version,
-		Chain:   req.Chain,
-		Builder: req.Builder,
-		OwnerID: ownerID,
+		ID:       generateID(),
+		Name:     name,
+		Version:  version,
+		Chain:    req.Chain,
+		Builder:  req.Builder,
+		Metadata: req.Metadata,
+		OwnerID:  ownerID,
 	}
 
 	if err := s.store.CreatePackage(ctx, pkg); err != nil {
@@ -151,6 +152,11 @@ func (s *service) Publish(ctx context.Context, name, version string, ownerID str
 		if artifact.StandardJSONInput != nil {
 			if err := s.store.StoreArtifact(ctx, contract.ID, "standard-json-input", artifact.StandardJSONInput); err != nil {
 				return fmt.Errorf("storing standard JSON input for %s: %w", artifact.Name, err)
+			}
+		}
+		if artifact.StorageLayout != nil {
+			if err := s.store.StoreArtifact(ctx, contract.ID, "storage-layout", artifact.StorageLayout); err != nil {
+				return fmt.Errorf("storing storage layout for %s: %w", artifact.Name, err)
 			}
 		}
 	}
@@ -428,6 +434,13 @@ func (s *service) GetArchive(ctx context.Context, name, version string) ([]byte,
 				return nil, fmt.Errorf("adding standard JSON input: %w", err)
 			}
 		}
+
+		// Storage Layout
+		if content, err := s.store.GetArtifact(ctx, contract.ID, "storage-layout"); err == nil {
+			if err := addToTar(tw, contractPath+"/storage-layout.json", content); err != nil {
+				return nil, fmt.Errorf("adding storage layout: %w", err)
+			}
+		}
 	}
 
 	if err := tw.Close(); err != nil {
@@ -470,6 +483,7 @@ func toPackage(p *storage.Package) *Package {
 		Builder:          p.Builder,
 		CompilerVersion:  p.CompilerVersion,
 		CompilerSettings: p.CompilerSettings,
+		Metadata:         p.Metadata,
 		OwnerID:          p.OwnerID,
 		CreatedAt:        createdAt,
 		Versions:         p.Versions,

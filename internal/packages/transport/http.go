@@ -72,6 +72,7 @@ func (h *Handler) RegisterReadRoutes(r chi.Router) {
 	r.Get("/{name}/{version}/contracts/{contract}/bytecode", h.handleGetBytecode)
 	r.Get("/{name}/{version}/contracts/{contract}/deployed-bytecode", h.handleGetDeployedBytecode)
 	r.Get("/{name}/{version}/contracts/{contract}/standard-json-input", h.handleGetStandardJSON)
+	r.Get("/{name}/{version}/contracts/{contract}/storage-layout", h.handleGetStorageLayout)
 }
 
 // RegisterWriteRoutes registers write package routes (auth required).
@@ -170,7 +171,7 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		contractNames[i] = c.Name
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"name":            pkg.Name,
 		"version":         pkg.Version,
 		"chain":           pkg.Chain,
@@ -178,7 +179,14 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		"compilerVersion": pkg.CompilerVersion,
 		"contracts":       contractNames,
 		"createdAt":       pkg.CreatedAt,
-	})
+	}
+
+	// Include metadata if present (non-empty)
+	if len(pkg.Metadata) > 0 {
+		response["metadata"] = pkg.Metadata
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) handlePublish(w http.ResponseWriter, r *http.Request) {
@@ -366,6 +374,10 @@ func (h *Handler) handleGetStandardJSON(w http.ResponseWriter, r *http.Request) 
 	h.handleGetArtifact(w, r, "standard-json-input")
 }
 
+func (h *Handler) handleGetStorageLayout(w http.ResponseWriter, r *http.Request) {
+	h.handleGetArtifact(w, r, "storage-layout")
+}
+
 func (h *Handler) handleGetArtifact(w http.ResponseWriter, r *http.Request, artifactType string) {
 	name := chi.URLParam(r, "name")
 	version := chi.URLParam(r, "version")
@@ -382,7 +394,7 @@ func (h *Handler) handleGetArtifact(w http.ResponseWriter, r *http.Request, arti
 	}
 
 	// For JSON artifacts, set proper content type
-	if artifactType == "abi" || artifactType == "standard-json-input" {
+	if artifactType == "abi" || artifactType == "standard-json-input" || artifactType == "storage-layout" {
 		w.Header().Set("Content-Type", "application/json")
 	} else {
 		w.Header().Set("Content-Type", "text/plain")

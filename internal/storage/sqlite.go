@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -69,6 +70,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		builder TEXT,
 		compiler_version TEXT,
 		compiler_settings TEXT,
+		metadata TEXT,
 		created_at TEXT DEFAULT (datetime('now')),
 		UNIQUE(name, version)
 	);
@@ -156,30 +158,55 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 
 // CreatePackage creates a new package
 func (s *SQLiteStore) CreatePackage(ctx context.Context, pkg *Package) error {
+	// Serialize metadata as JSON
+	var metadataJSON string
+	if len(pkg.Metadata) > 0 {
+		data, err := json.Marshal(pkg.Metadata)
+		if err != nil {
+			return fmt.Errorf("serializing metadata: %w", err)
+		}
+		metadataJSON = string(data)
+	} else {
+		metadataJSON = "{}"
+	}
+
 	query := `
-		INSERT INTO packages (id, name, version, chain, builder, compiler_version, compiler_settings, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		INSERT INTO packages (id, name, version, chain, builder, compiler_version, compiler_settings, metadata, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 	`
-	_, err := s.db.ExecContext(ctx, query, pkg.ID, pkg.Name, pkg.Version, pkg.Chain, pkg.Builder, pkg.CompilerVersion, "{}") // TODO: serialize settings
+	_, err := s.db.ExecContext(ctx, query, pkg.ID, pkg.Name, pkg.Version, pkg.Chain, pkg.Builder, pkg.CompilerVersion, "{}", metadataJSON)
 	return err
 }
 
 // GetPackage retrieves a package by name and version
 func (s *SQLiteStore) GetPackage(ctx context.Context, name, version string) (*Package, error) {
 	query := `
-		SELECT id, name, version, chain, builder, compiler_version, compiler_settings, created_at
+		SELECT id, name, version, chain, builder, compiler_version, compiler_settings, metadata, created_at
 		FROM packages
 		WHERE name = ? AND version = ?
 	`
 	var pkg Package
 	var settings string
+	var metadata sql.NullString
 	err := s.db.QueryRowContext(ctx, query, name, version).Scan(
-		&pkg.ID, &pkg.Name, &pkg.Version, &pkg.Chain, &pkg.Builder, &pkg.CompilerVersion, &settings, &pkg.CreatedAt,
+		&pkg.ID, &pkg.Name, &pkg.Version, &pkg.Chain, &pkg.Builder, &pkg.CompilerVersion, &settings, &metadata, &pkg.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
-	return &pkg, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Deserialize metadata if present
+	if metadata.Valid && metadata.String != "" && metadata.String != "{}" {
+		if err := json.Unmarshal([]byte(metadata.String), &pkg.Metadata); err != nil {
+			// Log but don't fail - metadata is optional
+			s.logger.Warn("failed to deserialize metadata", "error", err)
+		}
+	}
+
+	return &pkg, nil
 }
 
 // GetPackageVersions retrieves all versions of a package

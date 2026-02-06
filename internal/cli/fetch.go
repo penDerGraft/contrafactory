@@ -39,6 +39,9 @@ EXAMPLES:
 
   # Fetch Standard JSON Input (for block explorer verification)
   contrafactory fetch Token@1.0.0 --only standard-json-input
+
+  # Fetch storage layout (for upgradeable contract planning)
+  contrafactory fetch Token@1.0.0 --only storage-layout
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,7 +50,7 @@ EXAMPLES:
 	}
 
 	cmd.Flags().StringVarP(&output, "output", "o", ".", "output directory")
-	cmd.Flags().StringVar(&only, "only", "", "fetch only specific artifact type (abi, bytecode, deployed-bytecode, standard-json-input)")
+	cmd.Flags().StringVar(&only, "only", "", "fetch only specific artifact type (abi, bytecode, deployed-bytecode, standard-json-input, storage-layout)")
 	cmd.Flags().StringVar(&contract, "contract", "", "fetch only a specific contract")
 
 	return cmd
@@ -138,6 +141,14 @@ func runFetch(ref, output, only, contractFilter string) error {
 				fmt.Println("    ✓ standard-json-input.json")
 			}
 		}
+
+		if only == "" || only == "storage-layout" {
+			if err := fetchArtifact(c, ctx, name, version, contractName, "storage-layout", filepath.Join(contractDir, "storage-layout.json")); err != nil {
+				fmt.Printf("    ⚠️  storage-layout: %v\n", err)
+			} else {
+				fmt.Println("    ✓ storage-layout.json")
+			}
+		}
 	}
 
 	// Write manifest
@@ -171,6 +182,8 @@ func fetchArtifact(c *client.Client, ctx context.Context, name, version, contrac
 		content, err = c.GetDeployedBytecode(ctx, name, version, contract)
 	case "standard-json-input":
 		content, err = c.GetStandardJSONInput(ctx, name, version, contract)
+	case "storage-layout":
+		content, err = c.GetStorageLayout(ctx, name, version, contract)
 	default:
 		return fmt.Errorf("unknown artifact type: %s", artifactType)
 	}

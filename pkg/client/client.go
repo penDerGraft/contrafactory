@@ -201,6 +201,13 @@ func (c *Client) GetStandardJSONInput(ctx context.Context, name, version, contra
 	return c.getRaw(ctx, path)
 }
 
+// GetStorageLayout gets the storage layout for a contract
+func (c *Client) GetStorageLayout(ctx context.Context, name, version, contract string) ([]byte, error) {
+	path := fmt.Sprintf("/api/v1/packages/%s/%s/contracts/%s/storage-layout",
+		url.PathEscape(name), url.PathEscape(version), url.PathEscape(contract))
+	return c.getRaw(ctx, path)
+}
+
 // RecordDeployment records a deployment
 func (c *Client) RecordDeployment(ctx context.Context, req DeploymentRequest) error {
 	return c.post(ctx, "/api/v1/deployments", req, nil)

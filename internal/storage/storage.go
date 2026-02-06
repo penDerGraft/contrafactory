@@ -29,6 +29,7 @@ type Package struct {
 	Builder          string
 	CompilerVersion  string
 	CompilerSettings map[string]any
+	Metadata         map[string]string
 	OwnerID          string // API key ID that first published this package
 	CreatedAt        string
 	Versions         []string // Used for list aggregation (not stored directly)

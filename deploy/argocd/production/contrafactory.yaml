@@ -1,0 +1,138 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: contrafactory
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/pendergraft
+    targetRevision: 0.1.0
+    chart: contrafactory
+    helm:
+      valuesObject:
+        image:
+          repository: ghcr.io/pendergraft/contrafactory
+          tag: v0.1.0
+          pullPolicy: Always
+
+        replicaCount: 3
+
+        # Use PostgreSQL with secret created by ExternalSecret
+        storage:
+          type: postgres
+          postgres:
+            existingSecret: contrafactory-db
+            existingSecretKey: DATABASE_URL
+
+        # Authentication
+        auth:
+          type: api-key
+
+        # Logging
+        logging:
+          level: info
+          format: json
+
+        # Rate limiting
+        rateLimit:
+          enabled: true
+          requestsPerMin: 300
+          burstSize: 50
+          cleanupMinutes: 10
+
+        # Security
+        security:
+          filterEnabled: true
+          maxBodySizeMB: 50
+
+        # Trust the ALB proxy headers
+        proxy:
+          trustProxy: true
+          trustedProxies:
+            - "10.0.0.0/8"
+            - "172.16.0.0/12"
+            - "192.168.0.0/16"
+
+        # Server timeouts
+        serverTimeouts:
+          readTimeout: 30
+          writeTimeout: 60
+          idleTimeout: 120
+          requestTimeout: 30
+
+        # Standard K8s Ingress with AWS ALB annotations
+        ingress:
+          enabled: true
+          className: alb
+          annotations:
+            alb.ingress.kubernetes.io/scheme: internet-facing
+            alb.ingress.kubernetes.io/target-type: ip
+            alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:us-east-2:211125728910:certificate/REPLACE-WITH-CERT-ID"
+            alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+            alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": {"Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
+            alb.ingress.kubernetes.io/healthcheck-path: /health
+          hosts:
+            - host: contrafactory.prod.predicate.ninja
+              paths:
+                - path: /
+                  pathType: Prefix
+
+        # Enable Prometheus metrics
+        metrics:
+          path: /metrics
+          podMonitor:
+            enabled: true
+
+        # Pod Disruption Budget for HA
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+
+        # Inject ExternalSecret for database credentials
+        extra:
+          extraResources:
+            - apiVersion: external-secrets.io/v1beta1
+              kind: ExternalSecret
+              metadata:
+                name: contrafactory-db
+              spec:
+                refreshInterval: 0h
+                secretStoreRef:
+                  name: secrets-manager-access
+                  kind: ClusterSecretStore
+                target:
+                  name: contrafactory-db
+                  creationPolicy: Owner
+                  template:
+                    engineVersion: v2
+                    data:
+                      DATABASE_URL: "postgres://{{ .username }}:{{ .password | urlquery }}@predicate-services-production.cluster-ct26oqgi49xk.us-east-2.rds.amazonaws.com:5432/contrafactory?sslmode=require"
+                data:
+                  - secretKey: username
+                    remoteRef:
+                      key: rds!cluster-46cdf876-bc82-4d50-b303-3733ec3f1294
+                      property: username
+                  - secretKey: password
+                    remoteRef:
+                      key: rds!cluster-46cdf876-bc82-4d50-b303-3733ec3f1294
+                      property: password
+
+  destination:
+    name: in-cluster
+    namespace: contrafactory
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

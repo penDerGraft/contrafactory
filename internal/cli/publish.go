@@ -23,6 +23,7 @@ type PublishRequest struct {
 	Chain     string            `json:"chain"`
 	Builder   string            `json:"builder"`
 	Artifacts []PublishArtifact `json:"artifacts"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
 // PublishArtifact represents a contract artifact to publish
@@ -40,6 +41,7 @@ func createPublishCmd() *cobra.Command {
 	var contracts []string
 	var prefix string
 	var dryRun bool
+	var metadata []string
 
 	cmd := &cobra.Command{
 		Use:   "publish",
@@ -65,24 +67,33 @@ EXAMPLES:
   # Publish specific contracts only
   contrafactory publish --version 1.0.0 --contracts Token,Registry
 
+  # Publish with metadata
+  contrafactory publish --version 1.0.0 --metadata audit_status=passed --metadata auditor="Trail of Bits"
+
   # Dry run (show what would be published)
   contrafactory publish --version 1.0.0 --dry-run
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPublish(version, prefix, contracts, dryRun)
+			return runPublish(version, prefix, contracts, dryRun, metadata)
 		},
 	}
 
 	cmd.Flags().StringVarP(&version, "version", "v", "", "version to publish (required)")
 	cmd.Flags().StringSliceVar(&contracts, "contracts", nil, "specific contracts to publish (default: all)")
 	cmd.Flags().StringVarP(&prefix, "prefix", "p", "", "prefix for package names (e.g., 'myproject' creates 'myproject-Token')")
+	cmd.Flags().StringSliceVar(&metadata, "metadata", nil, "package metadata as key=value pairs (repeatable)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be published without publishing")
 	_ = cmd.MarkFlagRequired("version")
 
 	return cmd
 }
 
-func runPublish(version, prefix string, contracts []string, dryRun bool) error {
+func runPublish(version, prefix string, contracts []string, dryRun bool, metadataPairs []string) error {
+	// Parse metadata key=value pairs
+	metadata, err := parseMetadata(metadataPairs)
+	if err != nil {
+		return fmt.Errorf("parsing metadata: %w", err)
+	}
 	// Get current directory
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -203,7 +214,7 @@ func runPublish(version, prefix string, contracts []string, dryRun bool) error {
 
 	var successCount, failCount int
 	for _, pkg := range packages {
-		err := publishPackage(serverURL, pkg.name, version, pkg.artifact)
+		err := publishPackage(serverURL, pkg.name, version, pkg.artifact, metadata)
 		if err != nil {
 			fmt.Printf("   ❌ %s@%s: %v\n", pkg.name, version, err)
 			failCount++
@@ -263,11 +274,12 @@ func normalizePackageName(name string) string {
 }
 
 // publishPackage publishes a single contract as its own package
-func publishPackage(serverURL, packageName, version string, artifact PublishArtifact) error {
+func publishPackage(serverURL, packageName, version string, artifact PublishArtifact, metadata map[string]string) error {
 	req := PublishRequest{
 		Chain:     "evm",
 		Builder:   "foundry",
 		Artifacts: []PublishArtifact{artifact},
+		Metadata:  metadata,
 	}
 
 	reqBody, err := json.Marshal(req)
@@ -305,4 +317,22 @@ func publishPackage(serverURL, packageName, version string, artifact PublishArti
 	}
 
 	return nil
+}
+
+// parseMetadata parses key=value pairs into a map
+func parseMetadata(pairs []string) (map[string]string, error) {
+	metadata := make(map[string]string)
+	for _, pair := range pairs {
+		parts := strings.SplitN(pair, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid metadata format: %s (expected key=value)", pair)
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if key == "" {
+			return nil, fmt.Errorf("empty key in metadata: %s", pair)
+		}
+		metadata[key] = value
+	}
+	return metadata, nil
 }

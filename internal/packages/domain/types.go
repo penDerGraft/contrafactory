@@ -15,6 +15,7 @@ type Package struct {
 	Builder          string
 	CompilerVersion  string
 	CompilerSettings map[string]any
+	Metadata         map[string]string
 	OwnerID          string
 	CreatedAt        time.Time
 	Versions         []string // Used for list aggregation
@@ -44,6 +45,7 @@ type Artifact struct {
 	Bytecode          string          `json:"bytecode,omitempty"`
 	DeployedBytecode  string          `json:"deployedBytecode,omitempty"`
 	StandardJSONInput json.RawMessage `json:"standardJsonInput,omitempty"`
+	StorageLayout     json.RawMessage `json:"storageLayout,omitempty"`
 	Compiler          *CompilerInfo   `json:"compiler,omitempty"`
 }
 
@@ -63,9 +65,10 @@ type OptimizerInfo struct {
 
 // PublishRequest is the request to publish a new package version.
 type PublishRequest struct {
-	Chain     string     `json:"chain"`
-	Builder   string     `json:"builder,omitempty"`
-	Artifacts []Artifact `json:"artifacts"`
+	Chain     string            `json:"chain"`
+	Builder   string            `json:"builder,omitempty"`
+	Artifacts []Artifact        `json:"artifacts"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
 // ListFilter contains filter options for listing packages.

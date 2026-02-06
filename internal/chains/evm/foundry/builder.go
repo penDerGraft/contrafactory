@@ -210,6 +210,7 @@ func (b *Builder) Parse(artifactPath string) (*chains.Artifact, error) {
 			ABI:              raw.ABI,
 			Bytecode:         raw.Bytecode.Object,
 			DeployedBytecode: raw.DeployedBytecode.Object,
+			StorageLayout:    raw.StorageLayout,
 			Compiler: chains.EVMCompiler{
 				Version:    metadata.Compiler.Version,
 				EVMVersion: metadata.Settings.EVMVersion,
@@ -262,6 +263,7 @@ type FoundryArtifact struct {
 	ABI              json.RawMessage `json:"abi"`
 	Bytecode         BytecodeObject  `json:"bytecode"`
 	DeployedBytecode BytecodeObject  `json:"deployedBytecode"`
+	StorageLayout    json.RawMessage `json:"storageLayout"`
 	RawMetadata      string          `json:"rawMetadata"`
 	Metadata         json.RawMessage `json:"metadata"`
 }
