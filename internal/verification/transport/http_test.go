@@ -15,7 +15,7 @@ import (
 	"github.com/pendergraft/contrafactory/internal/verification/domain"
 )
 
-// mockService implements domain.Service for testing
+// mockService implements Service for testing
 type mockService struct {
 	results map[string]*domain.VerifyResult
 }
@@ -39,7 +39,7 @@ func (m *mockService) Verify(ctx context.Context, req domain.VerifyRequest) (*do
 	}, nil
 }
 
-func setupRouter(svc domain.Service) *chi.Mux {
+func setupRouter(svc Service) *chi.Mux {
 	r := chi.NewRouter()
 	h := NewHandler(svc)
 	h.RegisterRoutes(r)

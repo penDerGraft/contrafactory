@@ -22,22 +22,17 @@ var (
 	ErrInvalidChainID  = errors.New("invalid chain ID")
 )
 
-// Service defines the deployment service interface.
-type Service interface {
-	// Record records a new deployment.
-	Record(ctx context.Context, req RecordRequest) (*Deployment, error)
+// PackageStore defines the storage operations needed by the deployments domain.
+type PackageStore interface {
+	GetPackage(ctx context.Context, name, version string) (*storage.Package, error)
+}
 
-	// Get retrieves a deployment by chain and address.
-	Get(ctx context.Context, chainID, address string) (*Deployment, error)
-
-	// List lists deployments with filtering and pagination.
-	List(ctx context.Context, filter ListFilter, pagination PaginationParams) (*ListResult, error)
-
-	// ListByPackage lists deployments for a specific package version.
-	ListByPackage(ctx context.Context, packageName, version string) ([]DeploymentSummary, error)
-
-	// UpdateVerificationStatus updates the verification status of a deployment.
-	UpdateVerificationStatus(ctx context.Context, chainID, address string, verified bool, verifiedOn []string) error
+// DeploymentStore defines the storage operations needed by the deployments domain.
+type DeploymentStore interface {
+	RecordDeployment(ctx context.Context, d *storage.Deployment) error
+	GetDeployment(ctx context.Context, chain, chainID, address string) (*storage.Deployment, error)
+	ListDeployments(ctx context.Context, filter storage.DeploymentFilter, pagination storage.PaginationParams) (*storage.PaginatedResult[storage.Deployment], error)
+	UpdateVerificationStatus(ctx context.Context, id string, verified bool, verifiedOn []string) error
 }
 
 // DeploymentSummary is a lightweight deployment summary.
@@ -49,14 +44,17 @@ type DeploymentSummary struct {
 	TxHash       string `json:"txHash,omitempty"`
 }
 
-// service implements the Service interface.
 type service struct {
-	store storage.Store
+	packages    PackageStore
+	deployments DeploymentStore
 }
 
 // NewService creates a new deployment service.
-func NewService(store storage.Store) Service {
-	return &service{store: store}
+func NewService(packages PackageStore, deployments DeploymentStore) *service {
+	return &service{
+		packages:    packages,
+		deployments: deployments,
+	}
 }
 
 // Record records a new deployment.
@@ -72,7 +70,7 @@ func (s *service) Record(ctx context.Context, req RecordRequest) (*Deployment, e
 	}
 
 	// Get package
-	pkg, err := s.store.GetPackage(ctx, req.Package, req.Version)
+	pkg, err := s.packages.GetPackage(ctx, req.Package, req.Version)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrPackageNotFound
@@ -103,7 +101,7 @@ func (s *service) Record(ctx context.Context, req RecordRequest) (*Deployment, e
 		Verified:        false,
 	}
 
-	if err := s.store.RecordDeployment(ctx, deployment); err != nil {
+	if err := s.deployments.RecordDeployment(ctx, deployment); err != nil {
 		return nil, fmt.Errorf("recording deployment: %w", err)
 	}
 
@@ -112,7 +110,7 @@ func (s *service) Record(ctx context.Context, req RecordRequest) (*Deployment, e
 
 // Get retrieves a deployment by chain and address.
 func (s *service) Get(ctx context.Context, chainID, address string) (*Deployment, error) {
-	deployment, err := s.store.GetDeployment(ctx, "evm", chainID, address)
+	deployment, err := s.deployments.GetDeployment(ctx, "evm", chainID, address)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -125,7 +123,7 @@ func (s *service) Get(ctx context.Context, chainID, address string) (*Deployment
 
 // List lists deployments with filtering and pagination.
 func (s *service) List(ctx context.Context, filter ListFilter, pagination PaginationParams) (*ListResult, error) {
-	result, err := s.store.ListDeployments(ctx, storage.DeploymentFilter{
+	result, err := s.deployments.ListDeployments(ctx, storage.DeploymentFilter{
 		Chain:    filter.Chain,
 		ChainID:  filter.ChainID,
 		Package:  filter.Package,
@@ -153,7 +151,7 @@ func (s *service) List(ctx context.Context, filter ListFilter, pagination Pagina
 
 // UpdateVerificationStatus updates the verification status of a deployment.
 func (s *service) UpdateVerificationStatus(ctx context.Context, chainID, address string, verified bool, verifiedOn []string) error {
-	deployment, err := s.store.GetDeployment(ctx, "evm", chainID, address)
+	deployment, err := s.deployments.GetDeployment(ctx, "evm", chainID, address)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return ErrNotFound
@@ -161,7 +159,7 @@ func (s *service) UpdateVerificationStatus(ctx context.Context, chainID, address
 		return fmt.Errorf("getting deployment: %w", err)
 	}
 
-	if err := s.store.UpdateVerificationStatus(ctx, deployment.ID, verified, verifiedOn); err != nil {
+	if err := s.deployments.UpdateVerificationStatus(ctx, deployment.ID, verified, verifiedOn); err != nil {
 		return fmt.Errorf("updating verification status: %w", err)
 	}
 
@@ -171,7 +169,7 @@ func (s *service) UpdateVerificationStatus(ctx context.Context, chainID, address
 // ListByPackage lists deployments for a specific package version.
 func (s *service) ListByPackage(ctx context.Context, packageName, version string) ([]DeploymentSummary, error) {
 	// Get the package to get its ID
-	pkg, err := s.store.GetPackage(ctx, packageName, version)
+	pkg, err := s.packages.GetPackage(ctx, packageName, version)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrPackageNotFound
@@ -180,7 +178,7 @@ func (s *service) ListByPackage(ctx context.Context, packageName, version string
 	}
 
 	// List deployments filtered by package
-	result, err := s.store.ListDeployments(ctx, storage.DeploymentFilter{
+	result, err := s.deployments.ListDeployments(ctx, storage.DeploymentFilter{
 		Package: packageName,
 	}, storage.PaginationParams{
 		Limit: 100, // Reasonable limit

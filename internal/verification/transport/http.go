@@ -2,6 +2,7 @@
 package transport
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,13 +13,18 @@ import (
 	"github.com/pendergraft/contrafactory/internal/verification/domain"
 )
 
+// Service defines the verification service interface for HTTP transport.
+type Service interface {
+	Verify(ctx context.Context, req domain.VerifyRequest) (*domain.VerifyResult, error)
+}
+
 // Handler handles HTTP requests for verification.
 type Handler struct {
-	svc domain.Service
+	svc Service
 }
 
 // NewHandler creates a new verification HTTP handler.
-func NewHandler(svc domain.Service) *Handler {
+func NewHandler(svc Service) *Handler {
 	return &Handler{svc: svc}
 }
 

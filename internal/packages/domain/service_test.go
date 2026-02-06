@@ -122,29 +122,8 @@ func (m *mockStore) GetArtifact(ctx context.Context, contractID, artifactType st
 	return nil, storage.ErrNotFound
 }
 
-func (m *mockStore) GetArtifactByHash(ctx context.Context, hash string) ([]byte, error) {
-	return nil, storage.ErrNotFound
-}
-
-// Additional required interface methods
-func (m *mockStore) RecordDeployment(ctx context.Context, d *storage.Deployment) error { return nil }
-func (m *mockStore) GetDeployment(ctx context.Context, chain, chainID, address string) (*storage.Deployment, error) {
-	return nil, storage.ErrNotFound
-}
-func (m *mockStore) ListDeployments(ctx context.Context, filter storage.DeploymentFilter, pagination storage.PaginationParams) (*storage.PaginatedResult[storage.Deployment], error) {
-	return &storage.PaginatedResult[storage.Deployment]{}, nil
-}
-func (m *mockStore) UpdateVerificationStatus(ctx context.Context, id string, verified bool, verifiedOn []string) error {
-	return nil
-}
-func (m *mockStore) CreateAPIKey(ctx context.Context, name string) (string, error) { return "", nil }
-func (m *mockStore) ValidateAPIKey(ctx context.Context, key string) (*storage.APIKey, error) {
-	return nil, nil
-}
-func (m *mockStore) ListAPIKeys(ctx context.Context) ([]storage.APIKey, error) { return nil, nil }
-func (m *mockStore) RevokeAPIKey(ctx context.Context, id string) error         { return nil }
-func (m *mockStore) Close() error                                              { return nil }
-func (m *mockStore) Migrate(ctx context.Context) error                         { return nil }
+func (m *mockStore) Close() error    { return nil }
+func (m *mockStore) Migrate(ctx context.Context) error { return nil }
 
 func TestService_Publish(t *testing.T) {
 	tests := []struct {
@@ -219,7 +198,7 @@ func TestService_Publish(t *testing.T) {
 				tt.setup(store)
 			}
 
-			svc := NewService(store)
+			svc := NewService(store, store)
 			err := svc.Publish(context.Background(), tt.pkgName, tt.version, tt.ownerID, tt.req)
 
 			if tt.wantErr != nil {
@@ -241,7 +220,7 @@ func TestService_Get(t *testing.T) {
 		Chain:   "evm",
 	}
 
-	svc := NewService(store)
+	svc := NewService(store, store)
 
 	t.Run("existing package", func(t *testing.T) {
 		pkg, err := svc.Get(context.Background(), "my-package", "1.0.0")
@@ -274,7 +253,7 @@ func TestService_GetVersions(t *testing.T) {
 	store.packages["my-package@1.0.0"] = &storage.Package{Name: "my-package", Version: "1.0.0"}
 	store.packages["my-package@2.0.0"] = &storage.Package{Name: "my-package", Version: "2.0.0"}
 
-	svc := NewService(store)
+	svc := NewService(store, store)
 
 	t.Run("existing package", func(t *testing.T) {
 		result, err := svc.GetVersions(context.Background(), "my-package", false)
@@ -295,7 +274,7 @@ func TestService_List(t *testing.T) {
 	store.packages["pkg-a@1.0.0"] = &storage.Package{Name: "pkg-a", Version: "1.0.0"}
 	store.packages["pkg-b@1.0.0"] = &storage.Package{Name: "pkg-b", Version: "1.0.0"}
 
-	svc := NewService(store)
+	svc := NewService(store, store)
 
 	result, err := svc.List(context.Background(), ListFilter{}, PaginationParams{Limit: 10})
 	require.NoError(t, err)
@@ -307,7 +286,7 @@ func TestService_Delete(t *testing.T) {
 	store.packages["my-package@1.0.0"] = &storage.Package{Name: "my-package", Version: "1.0.0"}
 	store.owners["my-package"] = "owner-123"
 
-	svc := NewService(store)
+	svc := NewService(store, store)
 
 	t.Run("owner can delete", func(t *testing.T) {
 		err := svc.Delete(context.Background(), "my-package", "1.0.0", "owner-123")
@@ -336,7 +315,7 @@ func TestService_GetArtifact(t *testing.T) {
 	}
 	store.artifacts["contract-456/abi"] = []byte(`[{"type":"function"}]`)
 
-	svc := NewService(store)
+	svc := NewService(store, store)
 
 	t.Run("existing artifact", func(t *testing.T) {
 		content, err := svc.GetArtifact(context.Background(), "my-package", "1.0.0", "Token", "abi")

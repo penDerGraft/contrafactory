@@ -49,3 +49,6 @@ tmp/
 # Helm chart dependencies
 charts/*/charts/
 *.tgz
+
+
+.claude

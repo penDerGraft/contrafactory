@@ -51,50 +51,8 @@ func (m *mockStore) GetArtifact(ctx context.Context, contractID, artifactType st
 	return nil, storage.ErrNotFound
 }
 
-// Implement remaining Store interface methods as no-ops
-func (m *mockStore) Close() error                                                  { return nil }
-func (m *mockStore) Migrate(ctx context.Context) error                             { return nil }
-func (m *mockStore) CreatePackage(ctx context.Context, pkg *storage.Package) error { return nil }
-func (m *mockStore) GetPackageVersions(ctx context.Context, name string, includePrerelease bool) ([]string, error) {
-	return nil, nil
-}
-func (m *mockStore) ListPackages(ctx context.Context, filter storage.PackageFilter, pagination storage.PaginationParams) (*storage.PaginatedResult[storage.Package], error) {
-	return nil, nil
-}
-func (m *mockStore) DeletePackage(ctx context.Context, name, version string) error { return nil }
-func (m *mockStore) PackageExists(ctx context.Context, name, version string) (bool, error) {
-	return false, nil
-}
-func (m *mockStore) GetPackageOwner(ctx context.Context, name string) (string, error)   { return "", nil }
-func (m *mockStore) SetPackageOwner(ctx context.Context, name, ownerKeyID string) error { return nil }
-func (m *mockStore) CreateContract(ctx context.Context, packageID string, contract *storage.Contract) error {
-	return nil
-}
-func (m *mockStore) ListContracts(ctx context.Context, packageID string) ([]storage.Contract, error) {
-	return nil, nil
-}
-func (m *mockStore) StoreArtifact(ctx context.Context, contractID, artifactType string, content []byte) error {
-	return nil
-}
-func (m *mockStore) GetArtifactByHash(ctx context.Context, hash string) ([]byte, error) {
-	return nil, nil
-}
-func (m *mockStore) RecordDeployment(ctx context.Context, d *storage.Deployment) error { return nil }
-func (m *mockStore) GetDeployment(ctx context.Context, chain, chainID, address string) (*storage.Deployment, error) {
-	return nil, nil
-}
-func (m *mockStore) ListDeployments(ctx context.Context, filter storage.DeploymentFilter, pagination storage.PaginationParams) (*storage.PaginatedResult[storage.Deployment], error) {
-	return nil, nil
-}
-func (m *mockStore) UpdateVerificationStatus(ctx context.Context, id string, verified bool, verifiedOn []string) error {
-	return nil
-}
-func (m *mockStore) CreateAPIKey(ctx context.Context, name string) (string, error) { return "", nil }
-func (m *mockStore) ValidateAPIKey(ctx context.Context, key string) (*storage.APIKey, error) {
-	return nil, nil
-}
-func (m *mockStore) ListAPIKeys(ctx context.Context) ([]storage.APIKey, error) { return nil, nil }
-func (m *mockStore) RevokeAPIKey(ctx context.Context, id string) error         { return nil }
+func (m *mockStore) Close() error    { return nil }
+func (m *mockStore) Migrate(ctx context.Context) error { return nil }
 
 // mockChain implements chains.Chain for testing
 type mockChain struct {
@@ -127,7 +85,7 @@ func (m *mockChain) VerifyDeployment(ctx context.Context, opts chains.VerifyOpti
 func TestVerify_InvalidAddress(t *testing.T) {
 	store := newMockStore()
 	registry := chains.NewRegistry()
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:  "test-pkg",
@@ -145,7 +103,7 @@ func TestVerify_InvalidAddress(t *testing.T) {
 func TestVerify_InvalidChainID(t *testing.T) {
 	store := newMockStore()
 	registry := chains.NewRegistry()
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:  "test-pkg",
@@ -163,7 +121,7 @@ func TestVerify_InvalidChainID(t *testing.T) {
 func TestVerify_PackageNotFound(t *testing.T) {
 	store := newMockStore()
 	registry := chains.NewRegistry()
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:  "nonexistent-pkg",
@@ -187,7 +145,7 @@ func TestVerify_ContractNotFound(t *testing.T) {
 	}
 
 	registry := chains.NewRegistry()
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:  "test-pkg",
@@ -217,7 +175,7 @@ func TestVerify_DeployedBytecodeNotFound(t *testing.T) {
 	// No artifact stored
 
 	registry := chains.NewRegistry()
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:  "test-pkg",
@@ -248,7 +206,7 @@ func TestVerify_ChainNotSupported(t *testing.T) {
 
 	registry := chains.NewRegistry()
 	// No chain registered
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:  "test-pkg",
@@ -280,7 +238,7 @@ func TestVerify_WithoutRPC_ReturnsPending(t *testing.T) {
 
 	registry := chains.NewRegistry()
 	registry.Register(&mockChain{name: "evm"})
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:  "test-pkg",
@@ -327,7 +285,7 @@ func TestVerify_WithRPC_FullMatch(t *testing.T) {
 
 	registry := chains.NewRegistry()
 	registry.Register(mockEVM)
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:     "test-pkg",
@@ -373,7 +331,7 @@ func TestVerify_WithRPC_PartialMatch(t *testing.T) {
 
 	registry := chains.NewRegistry()
 	registry.Register(mockEVM)
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:     "test-pkg",
@@ -419,7 +377,7 @@ func TestVerify_WithRPC_NoMatch(t *testing.T) {
 
 	registry := chains.NewRegistry()
 	registry.Register(mockEVM)
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:     "test-pkg",
@@ -457,7 +415,7 @@ func TestVerify_WithRPC_FetchBytecodeError(t *testing.T) {
 
 	registry := chains.NewRegistry()
 	registry.Register(mockEVM)
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:     "test-pkg",
@@ -500,7 +458,7 @@ func TestVerify_WithRPC_VerificationError(t *testing.T) {
 
 	registry := chains.NewRegistry()
 	registry.Register(mockEVM)
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 
 	result, err := svc.Verify(context.Background(), VerifyRequest{
 		Package:     "test-pkg",
@@ -520,6 +478,6 @@ func TestNewService(t *testing.T) {
 	store := newMockStore()
 	registry := chains.NewRegistry()
 
-	svc := NewService(store, registry)
+	svc := NewService(store, store, registry)
 	assert.NotNil(t, svc)
 }

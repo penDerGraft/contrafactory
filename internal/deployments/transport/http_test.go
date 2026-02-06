@@ -15,7 +15,7 @@ import (
 	"github.com/pendergraft/contrafactory/internal/deployments/domain"
 )
 
-// mockService implements domain.Service for testing
+// mockService implements Service for testing
 type mockService struct {
 	deployments map[string]*domain.Deployment
 }
@@ -54,16 +54,6 @@ func (m *mockService) List(ctx context.Context, filter domain.ListFilter, pagina
 	return &domain.ListResult{Deployments: deployments}, nil
 }
 
-func (m *mockService) UpdateVerificationStatus(ctx context.Context, chainID, address string, verified bool, verifiedOn []string) error {
-	key := chainID + "/" + address
-	if d, ok := m.deployments[key]; ok {
-		d.Verified = verified
-		d.VerifiedOn = verifiedOn
-		return nil
-	}
-	return domain.ErrNotFound
-}
-
 func (m *mockService) ListByPackage(ctx context.Context, packageName, version string) ([]domain.DeploymentSummary, error) {
 	var summaries []domain.DeploymentSummary
 	for _, d := range m.deployments {
@@ -78,7 +68,7 @@ func (m *mockService) ListByPackage(ctx context.Context, packageName, version st
 	return summaries, nil
 }
 
-func setupRouter(svc domain.Service) *chi.Mux {
+func setupRouter(svc Service) *chi.Mux {
 	r := chi.NewRouter()
 	h := NewHandler(svc)
 	r.Route("/deployments", func(r chi.Router) {

@@ -33,10 +33,10 @@ type Server struct {
 	logger *slog.Logger
 	router *chi.Mux
 
-	// Domain services
-	packagesSvc     packagesDomain.Service
-	deploymentsSvc  deploymentsDomain.Service
-	verificationSvc verificationDomain.Service
+	// Services typed via transport interfaces
+	packagesSvc     packagesTransport.Service
+	deploymentsSvc  deploymentsTransport.Service
+	verificationSvc verificationTransport.Service
 }
 
 // New creates a new server
@@ -51,14 +51,16 @@ func New(cfg *config.Config, store storage.Store, logger *slog.Logger) *Server {
 	// Create chain registry
 	registry := chains.NewRegistry()
 
-	// Create domain services with middleware
-	var pkgSvc packagesDomain.Service
-	pkgSvc = packagesDomain.NewService(store)
-	pkgSvc = packagesDomain.LoggingMiddleware(logger)(pkgSvc)
-	s.packagesSvc = pkgSvc
+	// Create domain services
+	pkgImpl := packagesDomain.NewService(store, store)
+	deployImpl := deploymentsDomain.NewService(store, store)
+	verifyImpl := verificationDomain.NewService(store, store, registry)
 
-	s.deploymentsSvc = deploymentsDomain.NewService(store)
-	s.verificationSvc = verificationDomain.NewService(store, registry)
+	// Wrap packages service with logging middleware
+	pkgSvc := packagesDomain.LoggingMiddleware(logger)(pkgImpl)
+	s.packagesSvc = pkgSvc
+	s.deploymentsSvc = deployImpl
+	s.verificationSvc = verifyImpl
 
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -191,9 +193,14 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
+// deploymentLister adapts the deployments service for listing by package
+type deploymentLister interface {
+	ListByPackage(ctx context.Context, packageName, version string) ([]deploymentsDomain.DeploymentSummary, error)
+}
+
 // deploymentListerAdapter adapts the deployments service to the packages transport's DeploymentLister interface
 type deploymentListerAdapter struct {
-	svc deploymentsDomain.Service
+	svc deploymentLister
 }
 
 func (a *deploymentListerAdapter) ListByPackage(ctx context.Context, packageName, version string) ([]packagesTransport.DeploymentSummary, error) {

@@ -8,7 +8,46 @@ import (
 	"github.com/pendergraft/contrafactory/internal/config"
 )
 
-// Store is the main storage interface used by domain services
+// PackageStore handles package operations
+type PackageStore interface {
+	CreatePackage(ctx context.Context, pkg *Package) error
+	GetPackage(ctx context.Context, name, version string) (*Package, error)
+	GetPackageVersions(ctx context.Context, name string, includePrerelease bool) ([]string, error)
+	ListPackages(ctx context.Context, filter PackageFilter, pagination PaginationParams) (*PaginatedResult[Package], error)
+	DeletePackage(ctx context.Context, name, version string) error
+	PackageExists(ctx context.Context, name, version string) (bool, error)
+	GetPackageOwner(ctx context.Context, name string) (string, error)
+	SetPackageOwner(ctx context.Context, name, ownerKeyID string) error
+}
+
+// ContractStore handles contract operations
+type ContractStore interface {
+	CreateContract(ctx context.Context, packageID string, contract *Contract) error
+	GetContract(ctx context.Context, packageID, contractName string) (*Contract, error)
+	ListContracts(ctx context.Context, packageID string) ([]Contract, error)
+	StoreArtifact(ctx context.Context, contractID, artifactType string, content []byte) error
+	GetArtifact(ctx context.Context, contractID, artifactType string) ([]byte, error)
+	GetArtifactByHash(ctx context.Context, hash string) ([]byte, error)
+}
+
+// DeploymentStore handles deployment operations
+type DeploymentStore interface {
+	RecordDeployment(ctx context.Context, d *Deployment) error
+	GetDeployment(ctx context.Context, chain, chainID, address string) (*Deployment, error)
+	ListDeployments(ctx context.Context, filter DeploymentFilter, pagination PaginationParams) (*PaginatedResult[Deployment], error)
+	UpdateVerificationStatus(ctx context.Context, id string, verified bool, verifiedOn []string) error
+}
+
+// APIKeyStore handles API key operations
+type APIKeyStore interface {
+	CreateAPIKey(ctx context.Context, name string) (key string, err error)
+	ValidateAPIKey(ctx context.Context, key string) (*APIKey, error)
+	ListAPIKeys(ctx context.Context) ([]APIKey, error)
+	RevokeAPIKey(ctx context.Context, id string) error
+}
+
+// Store combines all storage interfaces with lifecycle methods.
+// Domain services define their own minimal interfaces based on their actual usage.
 type Store interface {
 	PackageStore
 	ContractStore
@@ -114,56 +153,6 @@ type PaginatedResult[T any] struct {
 	HasMore    bool
 	NextCursor string
 	PrevCursor string
-}
-
-// PackageStore handles package operations
-type PackageStore interface {
-	CreatePackage(ctx context.Context, pkg *Package) error
-	GetPackage(ctx context.Context, name, version string) (*Package, error)
-	GetPackageVersions(ctx context.Context, name string, includePrerelease bool) ([]string, error)
-	ListPackages(ctx context.Context, filter PackageFilter, pagination PaginationParams) (*PaginatedResult[Package], error)
-	DeletePackage(ctx context.Context, name, version string) error
-	PackageExists(ctx context.Context, name, version string) (bool, error)
-	// GetPackageOwner returns the owner ID of a package (first publisher), or empty string if not found
-	GetPackageOwner(ctx context.Context, name string) (string, error)
-	// SetPackageOwner sets the owner of a package (first-come-first-served)
-	SetPackageOwner(ctx context.Context, name, ownerKeyID string) error
-}
-
-// ContractStore handles contract operations
-type ContractStore interface {
-	CreateContract(ctx context.Context, packageID string, contract *Contract) error
-	GetContract(ctx context.Context, packageID, contractName string) (*Contract, error)
-	ListContracts(ctx context.Context, packageID string) ([]Contract, error)
-
-	// Artifact operations
-	StoreArtifact(ctx context.Context, contractID, artifactType string, content []byte) error
-	GetArtifact(ctx context.Context, contractID, artifactType string) ([]byte, error)
-	GetArtifactByHash(ctx context.Context, hash string) ([]byte, error)
-}
-
-// DeploymentStore handles deployment operations
-type DeploymentStore interface {
-	RecordDeployment(ctx context.Context, d *Deployment) error
-	GetDeployment(ctx context.Context, chain, chainID, address string) (*Deployment, error)
-	ListDeployments(ctx context.Context, filter DeploymentFilter, pagination PaginationParams) (*PaginatedResult[Deployment], error)
-	UpdateVerificationStatus(ctx context.Context, id string, verified bool, verifiedOn []string) error
-}
-
-// APIKeyStore handles API key operations
-type APIKeyStore interface {
-	CreateAPIKey(ctx context.Context, name string) (key string, err error)
-	ValidateAPIKey(ctx context.Context, key string) (*APIKey, error)
-	ListAPIKeys(ctx context.Context) ([]APIKey, error)
-	RevokeAPIKey(ctx context.Context, id string) error
-}
-
-// BlobStore handles large content storage
-type BlobStore interface {
-	Put(ctx context.Context, hash string, content []byte) error
-	Get(ctx context.Context, hash string) ([]byte, error)
-	Exists(ctx context.Context, hash string) (bool, error)
-	Delete(ctx context.Context, hash string) error
 }
 
 // New creates a new store based on configuration

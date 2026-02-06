@@ -2,6 +2,7 @@
 package transport
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,13 +14,21 @@ import (
 	"github.com/pendergraft/contrafactory/internal/deployments/domain"
 )
 
+// Service defines the deployment service interface for HTTP transport.
+type Service interface {
+	Record(ctx context.Context, req domain.RecordRequest) (*domain.Deployment, error)
+	Get(ctx context.Context, chainID, address string) (*domain.Deployment, error)
+	List(ctx context.Context, filter domain.ListFilter, pagination domain.PaginationParams) (*domain.ListResult, error)
+	ListByPackage(ctx context.Context, packageName, version string) ([]domain.DeploymentSummary, error)
+}
+
 // Handler handles HTTP requests for deployments.
 type Handler struct {
-	svc domain.Service
+	svc Service
 }
 
 // NewHandler creates a new deployments HTTP handler.
-func NewHandler(svc domain.Service) *Handler {
+func NewHandler(svc Service) *Handler {
 	return &Handler{svc: svc}
 }
 

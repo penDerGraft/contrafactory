@@ -24,44 +24,38 @@ var (
 	ErrInvalidName    = errors.New("invalid package name")
 )
 
-// Service defines the package service interface.
-type Service interface {
-	// Publish publishes a new package version.
-	Publish(ctx context.Context, name, version string, ownerID string, req PublishRequest) error
-
-	// Get retrieves a specific package version.
-	Get(ctx context.Context, name, version string) (*Package, error)
-
-	// GetVersions retrieves all versions of a package.
-	GetVersions(ctx context.Context, name string, includePrerelease bool) (*VersionsResult, error)
-
-	// List lists packages with filtering and pagination.
-	List(ctx context.Context, filter ListFilter, pagination PaginationParams) (*ListResult, error)
-
-	// Delete deletes a package version.
-	Delete(ctx context.Context, name, version string, ownerID string) error
-
-	// GetContracts lists contracts in a package version.
-	GetContracts(ctx context.Context, name, version string) ([]Contract, error)
-
-	// GetContract retrieves a specific contract.
-	GetContract(ctx context.Context, name, version, contractName string) (*Contract, error)
-
-	// GetArtifact retrieves a specific artifact for a contract.
-	GetArtifact(ctx context.Context, name, version, contractName, artifactType string) ([]byte, error)
-
-	// GetArchive returns a tarball of all artifacts for a package version.
-	GetArchive(ctx context.Context, name, version string) ([]byte, error)
+// PackageStore defines the storage operations needed by the packages domain.
+type PackageStore interface {
+	CreatePackage(ctx context.Context, pkg *storage.Package) error
+	GetPackage(ctx context.Context, name, version string) (*storage.Package, error)
+	GetPackageVersions(ctx context.Context, name string, includePrerelease bool) ([]string, error)
+	ListPackages(ctx context.Context, filter storage.PackageFilter, pagination storage.PaginationParams) (*storage.PaginatedResult[storage.Package], error)
+	DeletePackage(ctx context.Context, name, version string) error
+	PackageExists(ctx context.Context, name, version string) (bool, error)
+	GetPackageOwner(ctx context.Context, name string) (string, error)
+	SetPackageOwner(ctx context.Context, name, ownerKeyID string) error
 }
 
-// service implements the Service interface.
+// ContractStore defines the contract and artifact storage operations needed by the packages domain.
+type ContractStore interface {
+	CreateContract(ctx context.Context, packageID string, contract *storage.Contract) error
+	GetContract(ctx context.Context, packageID, contractName string) (*storage.Contract, error)
+	ListContracts(ctx context.Context, packageID string) ([]storage.Contract, error)
+	StoreArtifact(ctx context.Context, contractID, artifactType string, content []byte) error
+	GetArtifact(ctx context.Context, contractID, artifactType string) ([]byte, error)
+}
+
 type service struct {
-	store storage.Store
+	packages  PackageStore
+	contracts ContractStore
 }
 
 // NewService creates a new package service.
-func NewService(store storage.Store) Service {
-	return &service{store: store}
+func NewService(packages PackageStore, contracts ContractStore) *service {
+	return &service{
+		packages:  packages,
+		contracts: contracts,
+	}
 }
 
 // Publish publishes a new package version.
@@ -78,7 +72,7 @@ func (s *service) Publish(ctx context.Context, name, version string, ownerID str
 	version = validation.NormalizeVersion(version)
 
 	// Check package ownership
-	currentOwner, err := s.store.GetPackageOwner(ctx, name)
+	currentOwner, err := s.packages.GetPackageOwner(ctx, name)
 	if err != nil {
 		return fmt.Errorf("checking ownership: %w", err)
 	}
@@ -87,7 +81,7 @@ func (s *service) Publish(ctx context.Context, name, version string, ownerID str
 	}
 
 	// Check if version already exists
-	exists, err := s.store.PackageExists(ctx, name, version)
+	exists, err := s.packages.PackageExists(ctx, name, version)
 	if err != nil {
 		return fmt.Errorf("checking existence: %w", err)
 	}
@@ -106,13 +100,13 @@ func (s *service) Publish(ctx context.Context, name, version string, ownerID str
 		OwnerID:  ownerID,
 	}
 
-	if err := s.store.CreatePackage(ctx, pkg); err != nil {
+	if err := s.packages.CreatePackage(ctx, pkg); err != nil {
 		return fmt.Errorf("creating package: %w", err)
 	}
 
 	// Set package ownership (first publisher owns the package)
 	if ownerID != "" {
-		if err := s.store.SetPackageOwner(ctx, name, ownerID); err != nil {
+		if err := s.packages.SetPackageOwner(ctx, name, ownerID); err != nil {
 			// Log but don't fail - ownership is best-effort
 			_ = err
 		}
@@ -129,33 +123,33 @@ func (s *service) Publish(ctx context.Context, name, version string, ownerID str
 			PrimaryHash: computeHash([]byte(artifact.Bytecode)),
 		}
 
-		if err := s.store.CreateContract(ctx, pkg.ID, contract); err != nil {
+		if err := s.contracts.CreateContract(ctx, pkg.ID, contract); err != nil {
 			return fmt.Errorf("creating contract %s: %w", artifact.Name, err)
 		}
 
 		// Store artifacts
 		if artifact.ABI != nil {
-			if err := s.store.StoreArtifact(ctx, contract.ID, "abi", artifact.ABI); err != nil {
+			if err := s.contracts.StoreArtifact(ctx, contract.ID, "abi", artifact.ABI); err != nil {
 				return fmt.Errorf("storing ABI for %s: %w", artifact.Name, err)
 			}
 		}
 		if artifact.Bytecode != "" {
-			if err := s.store.StoreArtifact(ctx, contract.ID, "bytecode", []byte(artifact.Bytecode)); err != nil {
+			if err := s.contracts.StoreArtifact(ctx, contract.ID, "bytecode", []byte(artifact.Bytecode)); err != nil {
 				return fmt.Errorf("storing bytecode for %s: %w", artifact.Name, err)
 			}
 		}
 		if artifact.DeployedBytecode != "" {
-			if err := s.store.StoreArtifact(ctx, contract.ID, "deployed-bytecode", []byte(artifact.DeployedBytecode)); err != nil {
+			if err := s.contracts.StoreArtifact(ctx, contract.ID, "deployed-bytecode", []byte(artifact.DeployedBytecode)); err != nil {
 				return fmt.Errorf("storing deployed bytecode for %s: %w", artifact.Name, err)
 			}
 		}
 		if artifact.StandardJSONInput != nil {
-			if err := s.store.StoreArtifact(ctx, contract.ID, "standard-json-input", artifact.StandardJSONInput); err != nil {
+			if err := s.contracts.StoreArtifact(ctx, contract.ID, "standard-json-input", artifact.StandardJSONInput); err != nil {
 				return fmt.Errorf("storing standard JSON input for %s: %w", artifact.Name, err)
 			}
 		}
 		if artifact.StorageLayout != nil {
-			if err := s.store.StoreArtifact(ctx, contract.ID, "storage-layout", artifact.StorageLayout); err != nil {
+			if err := s.contracts.StoreArtifact(ctx, contract.ID, "storage-layout", artifact.StorageLayout); err != nil {
 				return fmt.Errorf("storing storage layout for %s: %w", artifact.Name, err)
 			}
 		}
@@ -168,7 +162,7 @@ func (s *service) Publish(ctx context.Context, name, version string, ownerID str
 func (s *service) Get(ctx context.Context, name, version string) (*Package, error) {
 	// Handle "latest" version
 	if version == "latest" {
-		versions, err := s.store.GetPackageVersions(ctx, name, false)
+		versions, err := s.packages.GetPackageVersions(ctx, name, false)
 		if err != nil {
 			return nil, fmt.Errorf("getting versions: %w", err)
 		}
@@ -178,7 +172,7 @@ func (s *service) Get(ctx context.Context, name, version string) (*Package, erro
 		version = validation.ResolveLatest(versions, false)
 	}
 
-	pkg, err := s.store.GetPackage(ctx, name, version)
+	pkg, err := s.packages.GetPackage(ctx, name, version)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -191,7 +185,7 @@ func (s *service) Get(ctx context.Context, name, version string) (*Package, erro
 
 // GetVersions retrieves all versions of a package.
 func (s *service) GetVersions(ctx context.Context, name string, includePrerelease bool) (*VersionsResult, error) {
-	versions, err := s.store.GetPackageVersions(ctx, name, includePrerelease)
+	versions, err := s.packages.GetPackageVersions(ctx, name, includePrerelease)
 	if err != nil {
 		return nil, fmt.Errorf("getting versions: %w", err)
 	}
@@ -205,7 +199,7 @@ func (s *service) GetVersions(ctx context.Context, name string, includePrereleas
 	if len(versions) > 0 {
 		latestVersion := validation.ResolveLatest(versions, includePrerelease)
 		if latestVersion != "" {
-			pkg, err := s.store.GetPackage(ctx, name, latestVersion)
+			pkg, err := s.packages.GetPackage(ctx, name, latestVersion)
 			if err == nil {
 				chain = pkg.Chain
 				builder = pkg.Builder
@@ -223,7 +217,7 @@ func (s *service) GetVersions(ctx context.Context, name string, includePrereleas
 
 // List lists packages with filtering and pagination.
 func (s *service) List(ctx context.Context, filter ListFilter, pagination PaginationParams) (*ListResult, error) {
-	result, err := s.store.ListPackages(ctx, storage.PackageFilter{
+	result, err := s.packages.ListPackages(ctx, storage.PackageFilter{
 		Query: filter.Query,
 		Chain: filter.Chain,
 		Sort:  filter.Sort,
@@ -252,7 +246,7 @@ func (s *service) List(ctx context.Context, filter ListFilter, pagination Pagina
 // Delete deletes a package version.
 func (s *service) Delete(ctx context.Context, name, version string, ownerID string) error {
 	// Check package ownership
-	currentOwner, err := s.store.GetPackageOwner(ctx, name)
+	currentOwner, err := s.packages.GetPackageOwner(ctx, name)
 	if err != nil {
 		return fmt.Errorf("checking ownership: %w", err)
 	}
@@ -260,7 +254,7 @@ func (s *service) Delete(ctx context.Context, name, version string, ownerID stri
 		return ErrForbidden
 	}
 
-	if err := s.store.DeletePackage(ctx, name, version); err != nil {
+	if err := s.packages.DeletePackage(ctx, name, version); err != nil {
 		return fmt.Errorf("deleting package: %w", err)
 	}
 
@@ -269,7 +263,7 @@ func (s *service) Delete(ctx context.Context, name, version string, ownerID stri
 
 // GetContracts lists contracts in a package version.
 func (s *service) GetContracts(ctx context.Context, name, version string) ([]Contract, error) {
-	pkg, err := s.store.GetPackage(ctx, name, version)
+	pkg, err := s.packages.GetPackage(ctx, name, version)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -277,7 +271,7 @@ func (s *service) GetContracts(ctx context.Context, name, version string) ([]Con
 		return nil, fmt.Errorf("getting package: %w", err)
 	}
 
-	contracts, err := s.store.ListContracts(ctx, pkg.ID)
+	contracts, err := s.contracts.ListContracts(ctx, pkg.ID)
 	if err != nil {
 		return nil, fmt.Errorf("listing contracts: %w", err)
 	}
@@ -300,7 +294,7 @@ func (s *service) GetContracts(ctx context.Context, name, version string) ([]Con
 
 // GetContract retrieves a specific contract.
 func (s *service) GetContract(ctx context.Context, name, version, contractName string) (*Contract, error) {
-	pkg, err := s.store.GetPackage(ctx, name, version)
+	pkg, err := s.packages.GetPackage(ctx, name, version)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -308,7 +302,7 @@ func (s *service) GetContract(ctx context.Context, name, version, contractName s
 		return nil, fmt.Errorf("getting package: %w", err)
 	}
 
-	contract, err := s.store.GetContract(ctx, pkg.ID, contractName)
+	contract, err := s.contracts.GetContract(ctx, pkg.ID, contractName)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -329,7 +323,7 @@ func (s *service) GetContract(ctx context.Context, name, version, contractName s
 
 // GetArtifact retrieves a specific artifact for a contract.
 func (s *service) GetArtifact(ctx context.Context, name, version, contractName, artifactType string) ([]byte, error) {
-	pkg, err := s.store.GetPackage(ctx, name, version)
+	pkg, err := s.packages.GetPackage(ctx, name, version)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -337,7 +331,7 @@ func (s *service) GetArtifact(ctx context.Context, name, version, contractName, 
 		return nil, fmt.Errorf("getting package: %w", err)
 	}
 
-	contract, err := s.store.GetContract(ctx, pkg.ID, contractName)
+	contract, err := s.contracts.GetContract(ctx, pkg.ID, contractName)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -345,7 +339,7 @@ func (s *service) GetArtifact(ctx context.Context, name, version, contractName, 
 		return nil, fmt.Errorf("getting contract: %w", err)
 	}
 
-	content, err := s.store.GetArtifact(ctx, contract.ID, artifactType)
+	content, err := s.contracts.GetArtifact(ctx, contract.ID, artifactType)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -359,7 +353,7 @@ func (s *service) GetArtifact(ctx context.Context, name, version, contractName, 
 // GetArchive returns a gzipped tarball of all artifacts for a package version.
 func (s *service) GetArchive(ctx context.Context, name, version string) ([]byte, error) {
 	// Get package
-	pkg, err := s.store.GetPackage(ctx, name, version)
+	pkg, err := s.packages.GetPackage(ctx, name, version)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -368,7 +362,7 @@ func (s *service) GetArchive(ctx context.Context, name, version string) ([]byte,
 	}
 
 	// Get contracts
-	contracts, err := s.store.ListContracts(ctx, pkg.ID)
+	contracts, err := s.contracts.ListContracts(ctx, pkg.ID)
 	if err != nil {
 		return nil, fmt.Errorf("listing contracts: %w", err)
 	}
@@ -408,35 +402,35 @@ func (s *service) GetArchive(ctx context.Context, name, version string) ([]byte,
 		contractPath := fmt.Sprintf("%s/%s", basePath, contract.Name)
 
 		// ABI
-		if content, err := s.store.GetArtifact(ctx, contract.ID, "abi"); err == nil {
+		if content, err := s.contracts.GetArtifact(ctx, contract.ID, "abi"); err == nil {
 			if err := addToTar(tw, contractPath+"/abi.json", content); err != nil {
 				return nil, fmt.Errorf("adding ABI: %w", err)
 			}
 		}
 
 		// Bytecode
-		if content, err := s.store.GetArtifact(ctx, contract.ID, "bytecode"); err == nil {
+		if content, err := s.contracts.GetArtifact(ctx, contract.ID, "bytecode"); err == nil {
 			if err := addToTar(tw, contractPath+"/bytecode.hex", content); err != nil {
 				return nil, fmt.Errorf("adding bytecode: %w", err)
 			}
 		}
 
 		// Deployed bytecode
-		if content, err := s.store.GetArtifact(ctx, contract.ID, "deployed-bytecode"); err == nil {
+		if content, err := s.contracts.GetArtifact(ctx, contract.ID, "deployed-bytecode"); err == nil {
 			if err := addToTar(tw, contractPath+"/deployed-bytecode.hex", content); err != nil {
 				return nil, fmt.Errorf("adding deployed bytecode: %w", err)
 			}
 		}
 
 		// Standard JSON Input
-		if content, err := s.store.GetArtifact(ctx, contract.ID, "standard-json-input"); err == nil {
+		if content, err := s.contracts.GetArtifact(ctx, contract.ID, "standard-json-input"); err == nil {
 			if err := addToTar(tw, contractPath+"/standard-json-input.json", content); err != nil {
 				return nil, fmt.Errorf("adding standard JSON input: %w", err)
 			}
 		}
 
 		// Storage Layout
-		if content, err := s.store.GetArtifact(ctx, contract.ID, "storage-layout"); err == nil {
+		if content, err := s.contracts.GetArtifact(ctx, contract.ID, "storage-layout"); err == nil {
 			if err := addToTar(tw, contractPath+"/storage-layout.json", content); err != nil {
 				return nil, fmt.Errorf("adding storage layout: %w", err)
 			}

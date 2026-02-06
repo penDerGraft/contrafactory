@@ -6,9 +6,22 @@ import (
 	"time"
 )
 
+// loggingService is the interface required for logging middleware.
+type loggingService interface {
+	Publish(ctx context.Context, name, version string, ownerID string, req PublishRequest) error
+	Get(ctx context.Context, name, version string) (*Package, error)
+	GetVersions(ctx context.Context, name string, includePrerelease bool) (*VersionsResult, error)
+	List(ctx context.Context, filter ListFilter, pagination PaginationParams) (*ListResult, error)
+	Delete(ctx context.Context, name, version string, ownerID string) error
+	GetContracts(ctx context.Context, name, version string) ([]Contract, error)
+	GetContract(ctx context.Context, name, version, contractName string) (*Contract, error)
+	GetArtifact(ctx context.Context, name, version, contractName, artifactType string) ([]byte, error)
+	GetArchive(ctx context.Context, name, version string) ([]byte, error)
+}
+
 // LoggingMiddleware returns a service middleware that logs all operations.
-func LoggingMiddleware(logger *slog.Logger) func(Service) Service {
-	return func(next Service) Service {
+func LoggingMiddleware(logger *slog.Logger) func(loggingService) *loggingMiddleware {
+	return func(next loggingService) *loggingMiddleware {
 		return &loggingMiddleware{
 			next:   next,
 			logger: logger,
@@ -17,7 +30,7 @@ func LoggingMiddleware(logger *slog.Logger) func(Service) Service {
 }
 
 type loggingMiddleware struct {
-	next   Service
+	next   loggingService
 	logger *slog.Logger
 }
 

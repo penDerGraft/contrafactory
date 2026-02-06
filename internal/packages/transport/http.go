@@ -16,6 +16,19 @@ import (
 	"github.com/pendergraft/contrafactory/internal/packages/domain"
 )
 
+// Service defines the package service interface for HTTP transport.
+type Service interface {
+	Publish(ctx context.Context, name, version string, ownerID string, req domain.PublishRequest) error
+	Get(ctx context.Context, name, version string) (*domain.Package, error)
+	GetVersions(ctx context.Context, name string, includePrerelease bool) (*domain.VersionsResult, error)
+	List(ctx context.Context, filter domain.ListFilter, pagination domain.PaginationParams) (*domain.ListResult, error)
+	Delete(ctx context.Context, name, version string, ownerID string) error
+	GetContracts(ctx context.Context, name, version string) ([]domain.Contract, error)
+	GetContract(ctx context.Context, name, version, contractName string) (*domain.Contract, error)
+	GetArtifact(ctx context.Context, name, version, contractName, artifactType string) ([]byte, error)
+	GetArchive(ctx context.Context, name, version string) ([]byte, error)
+}
+
 // DeploymentLister is an interface for listing deployments by package
 type DeploymentLister interface {
 	ListByPackage(ctx context.Context, packageName, version string) ([]DeploymentSummary, error)
@@ -32,12 +45,12 @@ type DeploymentSummary struct {
 
 // Handler handles HTTP requests for packages.
 type Handler struct {
-	svc         domain.Service
+	svc         Service
 	deployments DeploymentLister
 }
 
 // NewHandler creates a new packages HTTP handler.
-func NewHandler(svc domain.Service) *Handler {
+func NewHandler(svc Service) *Handler {
 	return &Handler{svc: svc}
 }
 

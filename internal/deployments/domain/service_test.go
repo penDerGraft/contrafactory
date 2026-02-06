@@ -64,46 +64,8 @@ func (m *mockStore) UpdateVerificationStatus(ctx context.Context, id string, ver
 	return storage.ErrNotFound
 }
 
-// Stub methods required by interface
-func (m *mockStore) CreatePackage(ctx context.Context, pkg *storage.Package) error { return nil }
-func (m *mockStore) GetPackageVersions(ctx context.Context, name string, includePrerelease bool) ([]string, error) {
-	return nil, nil
-}
-func (m *mockStore) ListPackages(ctx context.Context, filter storage.PackageFilter, pagination storage.PaginationParams) (*storage.PaginatedResult[storage.Package], error) {
-	return nil, nil
-}
-func (m *mockStore) DeletePackage(ctx context.Context, name, version string) error { return nil }
-func (m *mockStore) PackageExists(ctx context.Context, name, version string) (bool, error) {
-	return false, nil
-}
-func (m *mockStore) GetPackageOwner(ctx context.Context, name string) (string, error)   { return "", nil }
-func (m *mockStore) SetPackageOwner(ctx context.Context, name, ownerKeyID string) error { return nil }
-func (m *mockStore) CreateContract(ctx context.Context, packageID string, contract *storage.Contract) error {
-	return nil
-}
-func (m *mockStore) GetContract(ctx context.Context, packageID, contractName string) (*storage.Contract, error) {
-	return nil, nil
-}
-func (m *mockStore) ListContracts(ctx context.Context, packageID string) ([]storage.Contract, error) {
-	return nil, nil
-}
-func (m *mockStore) StoreArtifact(ctx context.Context, contractID, artifactType string, content []byte) error {
-	return nil
-}
-func (m *mockStore) GetArtifact(ctx context.Context, contractID, artifactType string) ([]byte, error) {
-	return nil, nil
-}
-func (m *mockStore) GetArtifactByHash(ctx context.Context, hash string) ([]byte, error) {
-	return nil, nil
-}
-func (m *mockStore) CreateAPIKey(ctx context.Context, name string) (string, error) { return "", nil }
-func (m *mockStore) ValidateAPIKey(ctx context.Context, key string) (*storage.APIKey, error) {
-	return nil, nil
-}
-func (m *mockStore) ListAPIKeys(ctx context.Context) ([]storage.APIKey, error) { return nil, nil }
-func (m *mockStore) RevokeAPIKey(ctx context.Context, id string) error         { return nil }
-func (m *mockStore) Close() error                                              { return nil }
-func (m *mockStore) Migrate(ctx context.Context) error                         { return nil }
+func (m *mockStore) Close() error    { return nil }
+func (m *mockStore) Migrate(ctx context.Context) error { return nil }
 
 func TestService_Record(t *testing.T) {
 	tests := []struct {
@@ -179,7 +141,7 @@ func TestService_Record(t *testing.T) {
 				tt.setup(store)
 			}
 
-			svc := NewService(store)
+			svc := NewService(store, store)
 			result, err := svc.Record(context.Background(), tt.req)
 
 			if tt.wantErr != nil {
@@ -203,7 +165,7 @@ func TestService_Get(t *testing.T) {
 		Verified: false,
 	}
 
-	svc := NewService(store)
+	svc := NewService(store, store)
 
 	t.Run("existing deployment", func(t *testing.T) {
 		d, err := svc.Get(context.Background(), "1", "0x1234567890abcdef1234567890abcdef12345678")
@@ -231,7 +193,7 @@ func TestService_List(t *testing.T) {
 		Address: "0xabcdef1234567890abcdef1234567890abcdef12",
 	}
 
-	svc := NewService(store)
+	svc := NewService(store, store)
 
 	result, err := svc.List(context.Background(), ListFilter{}, PaginationParams{Limit: 10})
 	require.NoError(t, err)
@@ -248,7 +210,7 @@ func TestService_UpdateVerificationStatus(t *testing.T) {
 		Verified: false,
 	}
 
-	svc := NewService(store)
+	svc := NewService(store, store)
 
 	err := svc.UpdateVerificationStatus(context.Background(), "1", "0x1234567890abcdef1234567890abcdef12345678", true, []string{"etherscan"})
 	require.NoError(t, err)

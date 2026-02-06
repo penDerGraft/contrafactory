@@ -19,23 +19,29 @@ var (
 	ErrChainNotFound  = errors.New("chain not supported")
 )
 
-// Service defines the verification service interface.
-type Service interface {
-	// Verify verifies a deployed contract matches the stored artifact.
-	Verify(ctx context.Context, req VerifyRequest) (*VerifyResult, error)
+// PackageStore defines the storage operations needed by the verification domain.
+type PackageStore interface {
+	GetPackage(ctx context.Context, name, version string) (*storage.Package, error)
 }
 
-// service implements the Service interface.
+// ContractStore defines the contract storage operations needed by the verification domain.
+type ContractStore interface {
+	GetContract(ctx context.Context, packageID, contractName string) (*storage.Contract, error)
+	GetArtifact(ctx context.Context, contractID, artifactType string) ([]byte, error)
+}
+
 type service struct {
-	store    storage.Store
+	packages PackageStore
+	contracts ContractStore
 	registry *chains.Registry
 }
 
 // NewService creates a new verification service.
-func NewService(store storage.Store, registry *chains.Registry) Service {
+func NewService(packages PackageStore, contracts ContractStore, registry *chains.Registry) *service {
 	return &service{
-		store:    store,
-		registry: registry,
+		packages:  packages,
+		contracts: contracts,
+		registry:  registry,
 	}
 }
 
@@ -52,7 +58,7 @@ func (s *service) Verify(ctx context.Context, req VerifyRequest) (*VerifyResult,
 	}
 
 	// Get package
-	pkg, err := s.store.GetPackage(ctx, req.Package, req.Version)
+	pkg, err := s.packages.GetPackage(ctx, req.Package, req.Version)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -61,7 +67,7 @@ func (s *service) Verify(ctx context.Context, req VerifyRequest) (*VerifyResult,
 	}
 
 	// Get contract
-	contract, err := s.store.GetContract(ctx, pkg.ID, req.Contract)
+	contract, err := s.contracts.GetContract(ctx, pkg.ID, req.Contract)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, ErrNotFound
@@ -70,7 +76,7 @@ func (s *service) Verify(ctx context.Context, req VerifyRequest) (*VerifyResult,
 	}
 
 	// Get deployed bytecode from storage
-	storedBytecode, err := s.store.GetArtifact(ctx, contract.ID, "deployed-bytecode")
+	storedBytecode, err := s.contracts.GetArtifact(ctx, contract.ID, "deployed-bytecode")
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, fmt.Errorf("deployed bytecode not found for contract %s", req.Contract)

@@ -15,7 +15,7 @@ import (
 	"github.com/pendergraft/contrafactory/internal/packages/domain"
 )
 
-// mockService implements domain.Service for testing
+// mockService implements Service for testing
 type mockService struct {
 	packages  map[string]*domain.Package
 	contracts map[string][]domain.Contract
@@ -112,7 +112,7 @@ func (m *mockService) GetArchive(ctx context.Context, name, version string) ([]b
 	return nil, domain.ErrNotFound
 }
 
-func setupRouter(svc domain.Service) *chi.Mux {
+func setupRouter(svc Service) *chi.Mux {
 	r := chi.NewRouter()
 	h := NewHandler(svc)
 	r.Route("/packages", func(r chi.Router) {
