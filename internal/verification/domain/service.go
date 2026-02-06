@@ -31,9 +31,9 @@ type ContractStore interface {
 }
 
 type service struct {
-	packages PackageStore
+	packages  PackageStore
 	contracts ContractStore
-	registry *chains.Registry
+	registry  *chains.Registry
 }
 
 // NewService creates a new verification service.

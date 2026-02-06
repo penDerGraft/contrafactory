@@ -64,7 +64,7 @@ func (m *mockStore) UpdateVerificationStatus(ctx context.Context, id string, ver
 	return storage.ErrNotFound
 }
 
-func (m *mockStore) Close() error    { return nil }
+func (m *mockStore) Close() error                      { return nil }
 func (m *mockStore) Migrate(ctx context.Context) error { return nil }
 
 func TestService_Record(t *testing.T) {

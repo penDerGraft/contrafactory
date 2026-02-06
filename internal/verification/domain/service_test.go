@@ -51,7 +51,7 @@ func (m *mockStore) GetArtifact(ctx context.Context, contractID, artifactType st
 	return nil, storage.ErrNotFound
 }
 
-func (m *mockStore) Close() error    { return nil }
+func (m *mockStore) Close() error                      { return nil }
 func (m *mockStore) Migrate(ctx context.Context) error { return nil }
 
 // mockChain implements chains.Chain for testing
