@@ -113,11 +113,11 @@ func buildFoundryProjectE(projectDir string) (string, error) {
 	// #nosec G204 -- controlled command
 	cmd := exec.Command("docker", "run", "--rm",
 		"-v", absProjectDir+":/project",
-		"-w", "/project",
 		"-v", builtDir+":/output",
+		"-w", "/project",
 		"--entrypoint", "/bin/sh",
 		"ghcr.io/foundry-rs/foundry:latest",
-		"-c", "forge build --build-info && mkdir -p /output/build-info && cp -r out/Token.sol out/Ownable.sol out/build-info /output/ 2>/dev/null || true")
+		"-c", "rm -rf /project/out && mkdir -p /output/build-info && forge build --build-info && cp -r out/Token.sol out/Ownable.sol build-info /output/ && rm -rf /project/out 2>/dev/null || true")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
