@@ -60,13 +60,20 @@ type Package struct {
 
 // Contract represents a contract in a package
 type Contract struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Chain       string `json:"chain"`
-	SourcePath  string `json:"sourcePath"`
-	License     string `json:"license,omitempty"`
-	PrimaryHash string `json:"primaryHash"`
-	CreatedAt   string `json:"createdAt"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Chain      string `json:"chain"`
+	SourcePath string `json:"sourcePath"`
+	License    string `json:"license,omitempty"`
+}
+
+// VersionDeployment represents a deployment for a package version
+type VersionDeployment struct {
+	ChainID      string `json:"chainId"`
+	Address      string `json:"address"`
+	ContractName string `json:"contractName"`
+	Verified     bool   `json:"verified"`
+	TxHash       string `json:"txHash,omitempty"`
 }
 
 // Deployment represents a recorded deployment
@@ -100,6 +107,45 @@ type Artifact struct {
 	Bytecode          string          `json:"bytecode"`
 	DeployedBytecode  string          `json:"deployedBytecode"`
 	StandardJSONInput json.RawMessage `json:"standardJsonInput,omitempty"`
+	StorageLayout     json.RawMessage `json:"storageLayout,omitempty"`
+	Compiler          *CompilerInfo   `json:"compiler,omitempty"`
+}
+
+// CompilerInfo contains compiler settings
+type CompilerInfo struct {
+	Version    string         `json:"version"`
+	Optimizer  *OptimizerInfo `json:"optimizer,omitempty"`
+	EVMVersion string         `json:"evmVersion,omitempty"`
+	ViaIR      bool           `json:"viaIR"`
+}
+
+// OptimizerInfo contains optimizer settings
+type OptimizerInfo struct {
+	Enabled bool `json:"enabled"`
+	Runs    int  `json:"runs"`
+}
+
+// VerifyRequest is the request for contract verification
+type VerifyRequest struct {
+	Package     string `json:"package"`
+	Version     string `json:"version"`
+	Contract    string `json:"contract"`
+	ChainID     int    `json:"chainId"`
+	Address     string `json:"address"`
+	RPCEndpoint string `json:"rpcEndpoint,omitempty"`
+}
+
+// VerifyResult is the result of contract verification
+type VerifyResult struct {
+	Verified  bool           `json:"verified"`
+	MatchType string         `json:"matchType"`
+	Message   string         `json:"message"`
+	Details   *VerifyDetails `json:"details,omitempty"`
+}
+
+// VerifyDetails contains additional verification details
+type VerifyDetails struct {
+	ExpectedBytecodeHash string `json:"expectedBytecodeHash,omitempty"`
 }
 
 // DeploymentRequest is the request for recording a deployment
@@ -223,6 +269,104 @@ func (c *Client) GetDeployment(ctx context.Context, chainID, address string) (*D
 	return &resp, nil
 }
 
+// Verify verifies a deployed contract
+func (c *Client) Verify(ctx context.Context, req VerifyRequest) (*VerifyResult, error) {
+	var resp VerifyResult
+	if err := c.post(ctx, "/api/v1/verify", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// ListContracts lists contracts in a package version
+func (c *Client) ListContracts(ctx context.Context, name, version string) ([]Contract, error) {
+	var resp struct {
+		Contracts []Contract `json:"contracts"`
+	}
+	path := fmt.Sprintf("/api/v1/packages/%s/%s/contracts", url.PathEscape(name), url.PathEscape(version))
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Contracts, nil
+}
+
+// GetContract gets a specific contract in a package version
+func (c *Client) GetContract(ctx context.Context, name, version, contract string) (*Contract, error) {
+	var resp Contract
+	path := fmt.Sprintf("/api/v1/packages/%s/%s/contracts/%s", url.PathEscape(name), url.PathEscape(version), url.PathEscape(contract))
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// GetVersionDeployments gets deployments for a package version
+func (c *Client) GetVersionDeployments(ctx context.Context, name, version string) ([]VersionDeployment, error) {
+	var resp struct {
+		Deployments []VersionDeployment `json:"deployments"`
+	}
+	path := fmt.Sprintf("/api/v1/packages/%s/%s/deployments", url.PathEscape(name), url.PathEscape(version))
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Deployments, nil
+}
+
+// GetArchive gets the archive for a package version
+func (c *Client) GetArchive(ctx context.Context, name, version string) ([]byte, error) {
+	path := fmt.Sprintf("/api/v1/packages/%s/%s/archive", url.PathEscape(name), url.PathEscape(version))
+	return c.getRaw(ctx, path)
+}
+
+// ListDeploymentsResponse is the response for listing deployments
+type ListDeploymentsResponse struct {
+	Deployments []DeploymentSummary `json:"data"`
+	Pagination  Pagination          `json:"pagination"`
+}
+
+// DeploymentSummary is a summary of a deployment
+type DeploymentSummary struct {
+	ChainID      string `json:"chainId"`
+	Address      string `json:"address"`
+	ContractName string `json:"contractName"`
+	Verified     bool   `json:"verified"`
+	TxHash       string `json:"txHash,omitempty"`
+}
+
+// ListDeployments lists deployments in the registry
+func (c *Client) ListDeployments(ctx context.Context, chainID, packageName string, verified *bool) (*ListDeploymentsResponse, error) {
+	path := "/api/v1/deployments?"
+	if chainID != "" {
+		path += "chain_id=" + url.QueryEscape(chainID) + "&"
+	}
+	if packageName != "" {
+		path += "package=" + url.QueryEscape(packageName) + "&"
+	}
+	if verified != nil {
+		val := "false"
+		if *verified {
+			val = "true"
+		}
+		path += "verified=" + val + "&"
+	}
+	// Trim trailing &
+	if len(path) > 0 && path[len(path)-1] == '&' {
+		path = path[:len(path)-1]
+	}
+
+	var resp ListDeploymentsResponse
+	if err := c.get(ctx, path, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// DeletePackage deletes a package version
+func (c *Client) DeletePackage(ctx context.Context, name, version string) error {
+	path := fmt.Sprintf("/api/v1/packages/%s/%s", url.PathEscape(name), url.PathEscape(version))
+	return c.delete(ctx, path)
+}
+
 func (c *Client) get(ctx context.Context, path string, result any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
@@ -268,6 +412,27 @@ func (c *Client) post(ctx context.Context, path string, body, result any) error 
 	req.Header.Set("Content-Type", "application/json")
 
 	return c.do(req, result)
+}
+
+func (c *Client) delete(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return c.parseError(resp)
+	}
+
+	return nil
 }
 
 func (c *Client) do(req *http.Request, result any) error {

@@ -1,0 +1,7 @@
+# Foundry build outputs
+cache/
+out/
+broadcast/
+
+# Forge artifacts
+.gas-snapshot

@@ -152,6 +152,7 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":              deployment.ID,
+		"packageId":       deployment.PackageID,
 		"chainId":         deployment.ChainID,
 		"address":         deployment.Address,
 		"contractName":    deployment.ContractName,

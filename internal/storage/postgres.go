@@ -421,11 +421,28 @@ func (s *PostgresStore) GetArtifactByHash(ctx context.Context, hash string) ([]b
 
 // RecordDeployment records a deployment
 func (s *PostgresStore) RecordDeployment(ctx context.Context, d *Deployment) error {
+	// Convert deployment_data map to JSON
+	deploymentData := "{}"
+	if len(d.DeploymentData) > 0 {
+		dataBytes, err := json.Marshal(d.DeploymentData)
+		if err != nil {
+			return fmt.Errorf("marshaling deployment data: %w", err)
+		}
+		deploymentData = string(dataBytes)
+	}
+
 	query := `
 		INSERT INTO deployments (id, package_id, contract_name, chain, chain_id, address, deployer_address, tx_hash, block_number, deployment_data)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT(chain, chain_id, address) DO UPDATE SET
+			package_id = EXCLUDED.package_id,
+			contract_name = EXCLUDED.contract_name,
+			deployer_address = EXCLUDED.deployer_address,
+			tx_hash = EXCLUDED.tx_hash,
+			block_number = EXCLUDED.block_number,
+			deployment_data = EXCLUDED.deployment_data
 	`
-	_, err := s.db.ExecContext(ctx, query, d.ID, d.PackageID, d.ContractName, d.Chain, d.ChainID, d.Address, d.DeployerAddress, d.TxHash, d.BlockNumber, "{}")
+	_, err := s.db.ExecContext(ctx, query, d.ID, d.PackageID, d.ContractName, d.Chain, d.ChainID, d.Address, d.DeployerAddress, d.TxHash, d.BlockNumber, deploymentData)
 	return err
 }
 

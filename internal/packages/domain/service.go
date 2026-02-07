@@ -89,15 +89,22 @@ func (s *service) Publish(ctx context.Context, name, version string, ownerID str
 		return ErrVersionExists
 	}
 
+	// Extract compiler version from first artifact (if available)
+	var compilerVersion string
+	if len(req.Artifacts) > 0 && req.Artifacts[0].Compiler != nil {
+		compilerVersion = req.Artifacts[0].Compiler.Version
+	}
+
 	// Create package
 	pkg := &storage.Package{
-		ID:       generateID(),
-		Name:     name,
-		Version:  version,
-		Chain:    req.Chain,
-		Builder:  req.Builder,
-		Metadata: req.Metadata,
-		OwnerID:  ownerID,
+		ID:              generateID(),
+		Name:            name,
+		Version:         version,
+		Chain:           req.Chain,
+		Builder:         req.Builder,
+		CompilerVersion: compilerVersion,
+		Metadata:        req.Metadata,
+		OwnerID:         ownerID,
 	}
 
 	if err := s.packages.CreatePackage(ctx, pkg); err != nil {

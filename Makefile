@@ -77,8 +77,8 @@ test-cover: ## Run tests with coverage report
 test-int: ## Run integration tests (requires Docker)
 	go test -tags=integration -v ./...
 
-test-e2e: build ## Run end-to-end tests with sample Foundry project
-	./scripts/e2e-test.sh
+test-e2e: ## Run E2E tests with testcontainers (requires Docker)
+	go test -tags=e2e -v -timeout 10m ./test/e2e/
 
 ## Linting & Formatting
 

@@ -38,7 +38,7 @@ type Contract struct {
 type Artifact struct {
 	Name       string `json:"name"`
 	SourcePath string `json:"sourcePath"`
-	Chain      string `json:"chain"`
+	Chain      string `json:"chain,omitempty"`
 
 	// EVM-specific fields
 	ABI               json.RawMessage `json:"abi,omitempty"`
