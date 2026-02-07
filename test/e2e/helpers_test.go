@@ -86,10 +86,11 @@ func buildFoundryProject(ctx context.Context, t *testing.T, projectDir string) s
 
 // buildFoundryProjectE runs forge build in a Foundry container (error-returning variant for TestMain)
 func buildFoundryProjectE(projectDir string) (string, error) {
-	// Create temp directory for build output
+	// Create temp directory for build output with world-writable permissions
+	// so the Docker container can write to it regardless of the user it runs as
 	builtDir := filepath.Join(os.TempDir(), fmt.Sprintf("foundry-out-%s", uuid.New().String()))
 
-	if err := os.MkdirAll(builtDir, 0755); err != nil {
+	if err := os.MkdirAll(builtDir, 0777); err != nil {
 		return "", fmt.Errorf("failed to create build directory: %w", err)
 	}
 
@@ -108,16 +109,19 @@ func buildFoundryProjectE(projectDir string) (string, error) {
 
 	fmt.Printf("Building Foundry project from: %s\n", absProjectDir)
 
-	// Run docker run to build the project in one shot
-	// Only copy our contracts (Token.sol, Ownable.sol) and build-info, not forge-std artifacts
+	// Run docker run to build the project in one shot.
+	// We mount the project directory as read-only and tell forge to write output
+	// directly to /output (which has world-writable permissions). This avoids
+	// permission errors in CI where the container user can't write to the
+	// bind-mounted project directory.
 	// #nosec G204 -- controlled command
 	cmd := exec.Command("docker", "run", "--rm",
-		"-v", absProjectDir+":/project",
+		"-v", absProjectDir+":/project:ro",
 		"-v", builtDir+":/output",
 		"-w", "/project",
 		"--entrypoint", "/bin/sh",
 		"ghcr.io/foundry-rs/foundry:latest",
-		"-c", "rm -rf /project/out && mkdir -p /output/build-info && forge build --build-info && cp -r out/Token.sol out/Ownable.sol build-info /output/ && rm -rf /project/out 2>/dev/null || true")
+		"-c", "forge build --build-info --out /output --cache-path /tmp/forge-cache")
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -159,44 +163,6 @@ func runCommand(args []string) error {
 	// #nosec G204 - we control the input
 	cmd := exec.Command(args[0], args[1:]...)
 	return cmd.Run()
-}
-
-
-// setupAnvilE starts an Anvil container for testing (error-returning variant for TestMain)
-func setupAnvilE(ctx context.Context) (testcontainers.Container, string, error) {
-	anvilContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		Started: true,
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "ghcr.io/foundry-rs/foundry:latest",
-			AutoRemove:   true,
-			Cmd:          []string{"anvil", "--host", "0.0.0.0", "--port", "8545"},
-			ExposedPorts: []string{"8545/tcp"},
-			WaitingFor:   wait.ForLog("Listening on").WithStartupTimeout(10 * time.Second),
-		},
-	})
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to start anvil container: %w", err)
-	}
-
-	// Get the mapped port
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	mappedPort, err := anvilContainer.MappedPort(ctx, "8545")
-	if err != nil {
-		_ = anvilContainer.Terminate(ctx)
-		return nil, "", fmt.Errorf("failed to get mapped anvil port: %w", err)
-	}
-
-	host, err := anvilContainer.Host(ctx)
-	if err != nil {
-		_ = anvilContainer.Terminate(ctx)
-		return nil, "", fmt.Errorf("failed to get anvil host: %w", err)
-	}
-
-	rpcURL := fmt.Sprintf("http://%s:%s", host, mappedPort.Port())
-
-	return anvilContainer, rpcURL, nil
 }
 
 // startServer starts the contrafactory server in-process with the given config
