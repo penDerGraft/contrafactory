@@ -93,6 +93,11 @@ func buildFoundryProjectE(projectDir string) (string, error) {
 	if err := os.MkdirAll(builtDir, 0777); err != nil {
 		return "", fmt.Errorf("failed to create build directory: %w", err)
 	}
+	// MkdirAll is subject to umask (typically 0022), so the directory ends up
+	// as 0755. Explicitly chmod to ensure the container user can write to it.
+	if err := os.Chmod(builtDir, 0777); err != nil {
+		return "", fmt.Errorf("failed to chmod build directory: %w", err)
+	}
 
 	// Get absolute path for the project
 	absProjectDir, err := filepath.Abs(projectDir)
