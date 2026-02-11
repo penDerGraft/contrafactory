@@ -136,9 +136,11 @@ func (b *Builder) Discover(dir string, opts chains.DiscoverOptions) ([]string, e
 			return nil // Skip artifacts we can't read
 		}
 
-		// Only include contracts from src/ directory (not lib/, test/, script/)
+		// Only include contracts from src/ directory, unless explicitly listed as a dependency
 		if !strings.HasPrefix(sourcePath, "src/") {
-			return nil
+			if !isIncludedDependency(contractName, opts.IncludeDependencies) {
+				return nil
+			}
 		}
 
 		seen[contractName] = true
@@ -319,6 +321,94 @@ func getFirstKey(m map[string]string) string {
 		return k
 	}
 	return ""
+}
+
+// isIncludedDependency checks if a contract name matches any dependency (case-insensitive)
+func isIncludedDependency(name string, deps []string) bool {
+	for _, d := range deps {
+		if strings.EqualFold(d, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// DiscoverDependencies finds all dependency contracts (from lib/) available in build artifacts
+func (b *Builder) DiscoverDependencies(dir string) ([]chains.DependencyInfo, error) {
+	outDir := filepath.Join(dir, "out")
+
+	// Check if out directory exists
+	if _, err := os.Stat(outDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("out directory not found - run 'forge build' first")
+	}
+
+	var deps []chains.DependencyInfo
+	seen := make(map[string]bool) // Track seen contract names to avoid duplicates
+
+	// Walk the out directory
+	err := filepath.Walk(outDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories and non-JSON files
+		if info.IsDir() || !strings.HasSuffix(info.Name(), ".json") {
+			return nil
+		}
+
+		// Skip build-info files
+		if strings.Contains(path, "build-info") {
+			return nil
+		}
+
+		// Get contract name from path (out/{Source}.sol/{Contract}.json)
+		parentDir := filepath.Dir(path)
+		if !strings.HasSuffix(parentDir, ".sol") {
+			return nil
+		}
+
+		contractName := strings.TrimSuffix(info.Name(), ".json")
+
+		// Skip if we've already seen this contract name
+		if seen[contractName] {
+			return nil
+		}
+
+		// Read the artifact to check its source path
+		sourcePath, err := b.getArtifactSourcePath(path)
+		if err != nil {
+			return nil // Skip artifacts we can't read
+		}
+
+		// Only include contracts NOT from src/ directory (these are dependencies)
+		if strings.HasPrefix(sourcePath, "src/") {
+			return nil
+		}
+
+		// Skip contracts without bytecode (interfaces)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+
+		var raw FoundryArtifact
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil
+		}
+
+		if raw.Bytecode.Object == "" || raw.Bytecode.Object == "0x" {
+			return nil // Skip interfaces
+		}
+
+		seen[contractName] = true
+		deps = append(deps, chains.DependencyInfo{
+			Name:       contractName,
+			SourcePath: sourcePath,
+		})
+		return nil
+	})
+
+	return deps, err
 }
 
 // OptimizerMeta contains optimizer settings

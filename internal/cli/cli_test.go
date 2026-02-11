@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 // newTestRootCmd creates a root command for testing purposes
@@ -633,33 +634,72 @@ func TestCredentialsDir(t *testing.T) {
 	assert.Contains(t, dir, ".contrafactory")
 }
 
-func TestLoadLocalConfig(t *testing.T) {
-	// Create temp directory
-	tmpDir := t.TempDir()
+func TestLoadProjectConfig(t *testing.T) {
 	origDir, _ := os.Getwd()
 	defer os.Chdir(origDir)
-	os.Chdir(tmpDir)
 
 	t.Run("no config file", func(t *testing.T) {
-		_, err := loadLocalConfig()
+		tmpDir := t.TempDir()
+		os.Chdir(tmpDir)
+
+		_, _, err := loadProjectConfig()
 		assert.Error(t, err)
+		assert.True(t, os.IsNotExist(err))
 	})
 
-	t.Run("valid config file", func(t *testing.T) {
-		config := CLIConfig{
-			Server:  "http://test:8080",
-			Project: "test-project",
-			Chain:   "evm",
-		}
-		data, _ := yaml.Marshal(config)
-		err := os.WriteFile("contrafactory.yaml", data, 0644)
+	t.Run("valid contrafactory.toml", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		os.Chdir(tmpDir)
+
+		content := `
+server = "http://test:8080"
+project = "test-project"
+chain = "evm"
+exclude = ["Test", "Mock"]
+include_dependencies = ["TransparentUpgradeableProxy"]
+`
+		err := os.WriteFile("contrafactory.toml", []byte(content), 0644)
 		require.NoError(t, err)
 
-		loaded, err := loadLocalConfig()
+		loaded, path, err := loadProjectConfig()
 		require.NoError(t, err)
+		assert.Equal(t, "contrafactory.toml", path)
 		assert.Equal(t, "http://test:8080", loaded.Server)
 		assert.Equal(t, "test-project", loaded.Project)
 		assert.Equal(t, "evm", loaded.Chain)
+		assert.Equal(t, []string{"Test", "Mock"}, loaded.Exclude)
+		assert.Equal(t, []string{"TransparentUpgradeableProxy"}, loaded.IncludeDependencies)
+	})
+
+	t.Run("cf.toml fallback", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		os.Chdir(tmpDir)
+
+		content := `
+server = "http://cf-test:8080"
+project = "cf-project"
+`
+		err := os.WriteFile("cf.toml", []byte(content), 0644)
+		require.NoError(t, err)
+
+		loaded, path, err := loadProjectConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "cf.toml", path)
+		assert.Equal(t, "http://cf-test:8080", loaded.Server)
+		assert.Equal(t, "cf-project", loaded.Project)
+	})
+
+	t.Run("contrafactory.toml takes precedence over cf.toml", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		os.Chdir(tmpDir)
+
+		_ = os.WriteFile("cf.toml", []byte(`server = "http://cf:8080"`), 0644)
+		_ = os.WriteFile("contrafactory.toml", []byte(`server = "http://main:8080"`), 0644)
+
+		loaded, path, err := loadProjectConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "contrafactory.toml", path)
+		assert.Equal(t, "http://main:8080", loaded.Server)
 	})
 }
 
@@ -698,20 +738,23 @@ func TestCredentialStorage(t *testing.T) {
 	})
 }
 
-func TestCLIConfig(t *testing.T) {
-	config := CLIConfig{
-		Server:    "http://localhost:8080",
-		Project:   "my-project",
-		Chain:     "evm",
-		Contracts: []string{"Token", "Registry"},
-		Exclude:   []string{"Test*", "Mock*"},
+func TestProjectConfig(t *testing.T) {
+	config := ProjectConfig{
+		Server:              "http://localhost:8080",
+		Project:             "my-project",
+		Chain:               "evm",
+		Contracts:           []string{"Token", "Registry"},
+		Exclude:             []string{"Test", "Mock"},
+		IncludeDependencies: []string{"TransparentUpgradeableProxy"},
 	}
 
-	data, err := yaml.Marshal(config)
+	// Test TOML encoding/decoding
+	var buf strings.Builder
+	err := toml.NewEncoder(&buf).Encode(config)
 	require.NoError(t, err)
 
-	var loaded CLIConfig
-	err = yaml.Unmarshal(data, &loaded)
+	var loaded ProjectConfig
+	_, err = toml.Decode(buf.String(), &loaded)
 	require.NoError(t, err)
 
 	assert.Equal(t, config.Server, loaded.Server)
@@ -719,6 +762,7 @@ func TestCLIConfig(t *testing.T) {
 	assert.Equal(t, config.Chain, loaded.Chain)
 	assert.Equal(t, config.Contracts, loaded.Contracts)
 	assert.Equal(t, config.Exclude, loaded.Exclude)
+	assert.Equal(t, config.IncludeDependencies, loaded.IncludeDependencies)
 }
 
 func TestFindLatestVersion(t *testing.T) {

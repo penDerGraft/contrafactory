@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,9 +37,20 @@ type PublishArtifact struct {
 	StandardJSONInput json.RawMessage `json:"standardJsonInput,omitempty"`
 }
 
+// Default exclude patterns
+var defaultExcludePatterns = []string{
+	"Test",   // *Test contracts
+	"Script", // *Script contracts
+	"Mock",   // Mock* contracts
+	"Deploy", // Deploy* scripts
+	"Setup",  // *Setup test helpers
+}
+
 func createPublishCmd() *cobra.Command {
 	var version string
 	var contracts []string
+	var exclude []string
+	var includeDeps []string
 	var prefix string
 	var dryRun bool
 	var metadata []string
@@ -67,6 +79,9 @@ EXAMPLES:
   # Publish specific contracts only
   contrafactory publish --version 1.0.0 --contracts Token,Registry
 
+  # Publish with dependency contracts from lib/
+  contrafactory publish --version 1.0.0 --include-deps TransparentUpgradeableProxy,ProxyAdmin
+
   # Publish with metadata
   contrafactory publish --version 1.0.0 --metadata audit_status=passed --metadata auditor="Trail of Bits"
 
@@ -74,12 +89,14 @@ EXAMPLES:
   contrafactory publish --version 1.0.0 --dry-run
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPublish(version, prefix, contracts, dryRun, metadata)
+			return runPublish(version, prefix, contracts, exclude, includeDeps, dryRun, metadata)
 		},
 	}
 
 	cmd.Flags().StringVarP(&version, "version", "v", "", "version to publish (required)")
-	cmd.Flags().StringSliceVar(&contracts, "contracts", nil, "specific contracts to publish (default: all)")
+	cmd.Flags().StringSliceVar(&contracts, "contracts", nil, "specific contracts to publish (default: all from src/)")
+	cmd.Flags().StringSliceVar(&exclude, "exclude", nil, "patterns to exclude (e.g., Test,Mock) - replaces config defaults")
+	cmd.Flags().StringSliceVar(&includeDeps, "include-deps", nil, "dependency contracts to publish from lib/")
 	cmd.Flags().StringVarP(&prefix, "prefix", "p", "", "prefix for package names (e.g., 'myproject' creates 'myproject-Token')")
 	cmd.Flags().StringSliceVar(&metadata, "metadata", nil, "package metadata as key=value pairs (repeatable)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be published without publishing")
@@ -88,12 +105,13 @@ EXAMPLES:
 	return cmd
 }
 
-func runPublish(version, prefix string, contracts []string, dryRun bool, metadataPairs []string) error {
+func runPublish(version, prefix string, contracts, exclude, includeDeps []string, dryRun bool, metadataPairs []string) error {
 	// Parse metadata key=value pairs
 	metadata, err := parseMetadata(metadataPairs)
 	if err != nil {
 		return fmt.Errorf("parsing metadata: %w", err)
 	}
+
 	// Get current directory
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -110,25 +128,40 @@ func runPublish(version, prefix string, contracts []string, dryRun bool, metadat
 		return fmt.Errorf("no Foundry project detected (missing foundry.toml) - currently only Foundry projects are supported")
 	}
 
-	fmt.Printf("📦 Detected Foundry project in %s\n", cwd)
+	fmt.Printf("Detected Foundry project in %s\n", cwd)
+
+	// Load project config (optional)
+	projectConfig := loadProjectConfigSilent()
+
+	// Resolve contracts: CLI flag > config > default (all from src/)
+	if len(contracts) == 0 && projectConfig != nil {
+		contracts = projectConfig.Contracts
+	}
+
+	// Resolve exclude: CLI flag > config > hardcoded defaults
+	excludePatterns := defaultExcludePatterns
+	if len(exclude) > 0 {
+		excludePatterns = exclude
+	} else if projectConfig != nil && len(projectConfig.Exclude) > 0 {
+		excludePatterns = projectConfig.Exclude
+	}
+
+	// Resolve include_dependencies: CLI flag > config
+	if len(includeDeps) == 0 && projectConfig != nil {
+		includeDeps = projectConfig.IncludeDependencies
+	}
 
 	// Discover artifacts
-	// Exclude common test/script/mock patterns
 	discoverOpts := chains.DiscoverOptions{
-		Contracts: contracts,
-		Exclude: []string{
-			"Test",   // *Test contracts
-			"Script", // *Script contracts
-			"Mock",   // Mock* contracts
-			"Deploy", // Deploy* scripts
-			"Setup",  // *Setup test helpers
-		},
+		Contracts:           contracts,
+		Exclude:             excludePatterns,
+		IncludeDependencies: includeDeps,
 	}
 
 	artifactPaths, err := builder.Discover(cwd, discoverOpts)
 	if err != nil {
 		if strings.Contains(err.Error(), "build-info") {
-			return fmt.Errorf("%w\n\n💡 TIP: Run 'forge build --build-info' first to generate the required build info files", err)
+			return fmt.Errorf("%w\n\nTIP: Run 'forge build --build-info' first to generate the required build info files", err)
 		}
 		return fmt.Errorf("discovering artifacts: %w", err)
 	}
@@ -137,12 +170,43 @@ func runPublish(version, prefix string, contracts []string, dryRun bool, metadat
 		return fmt.Errorf("no contract artifacts found\n\nMake sure you've run 'forge build' and have contracts in your src/ directory")
 	}
 
-	fmt.Printf("🔍 Found %d contract(s) in src/\n", len(artifactPaths))
+	// Validate that all requested dependencies were found
+	if len(includeDeps) > 0 {
+		if err := validateDependencies(builder, cwd, includeDeps, artifactPaths); err != nil {
+			return err
+		}
+	}
+
+	// Count src vs dependency contracts
+	srcCount := 0
+	depCount := 0
+	for _, path := range artifactPaths {
+		artifact, err := builder.Parse(path)
+		if err != nil {
+			continue
+		}
+		if artifact.EVM != nil {
+			if strings.HasPrefix(artifact.EVM.SourcePath, "src/") {
+				srcCount++
+			} else {
+				depCount++
+			}
+		}
+	}
+
+	if srcCount > 0 {
+		fmt.Printf("Found %d contract(s) in src/\n", srcCount)
+	}
+	if depCount > 0 {
+		fmt.Printf("Found %d dependency contract(s) via include_dependencies\n", depCount)
+	}
 
 	// Parse artifacts and prepare for publishing
 	type packageToPublish struct {
-		name     string
-		artifact PublishArtifact
+		name       string
+		artifact   PublishArtifact
+		isDep      bool
+		sourcePath string
 	}
 	var packages []packageToPublish
 	var skippedInterfaces []string
@@ -156,7 +220,7 @@ func runPublish(version, prefix string, contracts []string, dryRun bool, metadat
 				skippedInterfaces = append(skippedInterfaces, contractName)
 				continue
 			}
-			fmt.Printf("⚠️  Warning: skipping %s: %v\n", filepath.Base(path), err)
+			fmt.Printf("Warning: skipping %s: %v\n", filepath.Base(path), err)
 			continue
 		}
 
@@ -184,11 +248,19 @@ func runPublish(version, prefix string, contracts []string, dryRun bool, metadat
 			packageName = prefix + "-" + packageName
 		}
 
+		isDep := !strings.HasPrefix(artifact.EVM.SourcePath, "src/")
 		packages = append(packages, packageToPublish{
-			name:     packageName,
-			artifact: pa,
+			name:       packageName,
+			artifact:   pa,
+			isDep:      isDep,
+			sourcePath: artifact.EVM.SourcePath,
 		})
-		fmt.Printf("  ✓ %s → %s@%s\n", artifact.Name, packageName, version)
+
+		if isDep {
+			fmt.Printf("  + %s [dep] -> %s@%s\n", artifact.Name, packageName, version)
+		} else {
+			fmt.Printf("  + %s -> %s@%s\n", artifact.Name, packageName, version)
+		}
 	}
 
 	if len(packages) == 0 {
@@ -197,29 +269,33 @@ func runPublish(version, prefix string, contracts []string, dryRun bool, metadat
 
 	// Show skipped interfaces if any
 	if len(skippedInterfaces) > 0 {
-		fmt.Printf("  ⏭️  Skipped %d interface(s): %s\n", len(skippedInterfaces), strings.Join(skippedInterfaces, ", "))
+		fmt.Printf("  Skipped %d interface(s): %s\n", len(skippedInterfaces), strings.Join(skippedInterfaces, ", "))
 	}
 
 	if dryRun {
-		fmt.Printf("\n🔍 DRY RUN - Would publish %d package(s) to %s\n", len(packages), getServer())
+		fmt.Printf("\nDRY RUN - Would publish %d package(s) to %s\n", len(packages), getServer())
 		for _, pkg := range packages {
-			fmt.Printf("   - %s@%s\n", pkg.name, version)
+			if pkg.isDep {
+				fmt.Printf("   - %s@%s [dependency]\n", pkg.name, version)
+			} else {
+				fmt.Printf("   - %s@%s\n", pkg.name, version)
+			}
 		}
 		return nil
 	}
 
 	// Publish each contract as its own package
 	serverURL := getServer()
-	fmt.Printf("\n📤 Publishing %d package(s) to %s...\n", len(packages), serverURL)
+	fmt.Printf("\nPublishing %d package(s) to %s...\n", len(packages), serverURL)
 
 	var successCount, failCount int
 	for _, pkg := range packages {
 		err := publishPackage(serverURL, pkg.name, version, pkg.artifact, metadata)
 		if err != nil {
-			fmt.Printf("   ❌ %s@%s: %v\n", pkg.name, version, err)
+			fmt.Printf("   X %s@%s: %v\n", pkg.name, version, err)
 			failCount++
 		} else {
-			fmt.Printf("   ✅ %s@%s\n", pkg.name, version)
+			fmt.Printf("   OK %s@%s\n", pkg.name, version)
 			successCount++
 		}
 	}
@@ -229,12 +305,101 @@ func runPublish(version, prefix string, contracts []string, dryRun bool, metadat
 		return fmt.Errorf("published %d package(s), %d failed", successCount, failCount)
 	}
 
-	fmt.Printf("✅ Successfully published %d package(s)\n", successCount)
+	fmt.Printf("Successfully published %d package(s)\n", successCount)
 	if len(packages) > 0 {
 		fmt.Printf("\n   Example: contrafactory fetch %s@%s\n", packages[0].name, version)
 	}
 
 	return nil
+}
+
+// validateDependencies checks that all requested dependencies were found
+func validateDependencies(builder *foundry.Builder, cwd string, requestedDeps []string, foundPaths []string) error {
+	// Build a set of found contract names
+	found := make(map[string]bool)
+	for _, path := range foundPaths {
+		contractName := strings.TrimSuffix(filepath.Base(path), ".json")
+		found[strings.ToLower(contractName)] = true
+	}
+
+	// Check which requested deps weren't found
+	var unmatched []string
+	for _, dep := range requestedDeps {
+		if !found[strings.ToLower(dep)] {
+			unmatched = append(unmatched, dep)
+		}
+	}
+
+	if len(unmatched) == 0 {
+		return nil
+	}
+
+	// Get all available deps for suggestions
+	availableDeps, err := builder.DiscoverDependencies(cwd)
+	if err != nil {
+		// If we can't get available deps, just show the error without suggestions
+		return fmt.Errorf("dependency %q not found in build artifacts", unmatched[0])
+	}
+
+	// Build error message with suggestions
+	var msg strings.Builder
+	msg.WriteString(fmt.Sprintf("Error: dependency %q not found in build artifacts", unmatched[0]))
+	msg.WriteString("\n\nDid you mean one of these?\n")
+
+	// Find close matches using case-insensitive substring matching
+	suggestions := findSuggestions(unmatched[0], availableDeps)
+	if len(suggestions) > 0 {
+		for _, s := range suggestions {
+			msg.WriteString(fmt.Sprintf("  - %s (%s)\n", s.Name, s.SourcePath))
+		}
+	} else {
+		// Show all available deps if no close matches
+		for _, dep := range availableDeps {
+			if len(suggestions) < 10 {
+				msg.WriteString(fmt.Sprintf("  - %s (%s)\n", dep.Name, dep.SourcePath))
+			}
+		}
+	}
+
+	msg.WriteString("\nRun 'contrafactory discover --deps' to see all available dependency contracts.")
+	msg.WriteString("\nMake sure the contract has bytecode (interfaces are excluded).")
+
+	return errors.New(msg.String())
+}
+
+// findSuggestions finds close matches for a requested dependency name
+func findSuggestions(requested string, available []chains.DependencyInfo) []chains.DependencyInfo {
+	var suggestions []chains.DependencyInfo
+	requestedLower := strings.ToLower(requested)
+
+	for _, dep := range available {
+		depLower := strings.ToLower(dep.Name)
+
+		// Check if one contains the other (case-insensitive)
+		if strings.Contains(depLower, requestedLower) || strings.Contains(requestedLower, depLower) {
+			suggestions = append(suggestions, dep)
+			continue
+		}
+
+		// Check for common prefix
+		minLen := len(depLower)
+		if len(requestedLower) < minLen {
+			minLen = len(requestedLower)
+		}
+		if minLen > 3 {
+			matchCount := 0
+			for i := 0; i < minLen; i++ {
+				if depLower[i] == requestedLower[i] {
+					matchCount++
+				}
+			}
+			if float64(matchCount)/float64(minLen) > 0.7 {
+				suggestions = append(suggestions, dep)
+			}
+		}
+	}
+
+	return suggestions
 }
 
 // normalizePackageName converts a contract name to a valid package name.

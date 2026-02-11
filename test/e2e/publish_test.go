@@ -160,3 +160,108 @@ func TestPublish_UnauthenticatedWriteRejected(t *testing.T) {
 
 	assertHTTPError(t, err, "UNAUTHORIZED")
 }
+
+// TestPublish_DependencyContracts tests publishing dependency contracts from lib/
+func TestPublish_DependencyContracts(t *testing.T) {
+	apiKey := createTestAPIKey(t, testCtx.Store, "test-deps")
+	c := newClient(testCtx.TestServer, apiKey)
+
+	t.Run("publish dependency contract alongside src contract", func(t *testing.T) {
+		// Publish both Token (src/) and ProxyAdmin (lib/mock-vendor/contracts/)
+		publishFromBuiltArtifacts(t, c, testCtx.FoundryBuiltDir, "mixed-package", "1.0.0", "Token", "ProxyAdmin")
+
+		pkg, err := c.GetPackageVersion(context.Background(), "mixed-package", "1.0.0")
+		require.NoError(t, err)
+		assert.Len(t, pkg.Contracts, 2, "should have both src and dependency contracts names")
+
+		// Get full contract details
+		contracts, err := c.ListContracts(context.Background(), "mixed-package", "1.0.0")
+		require.NoError(t, err)
+		assert.Len(t, contracts, 2, "should have both src and dependency contracts")
+
+		// Find each contract
+		var tokenFound, proxyAdminFound bool
+		for _, contract := range contracts {
+			if contract.Name == "Token" {
+				tokenFound = true
+				assert.Contains(t, contract.SourcePath, "src/", "Token should be from src/")
+			}
+			if contract.Name == "ProxyAdmin" {
+				proxyAdminFound = true
+				assert.Contains(t, contract.SourcePath, "lib/", "ProxyAdmin should be from lib/")
+			}
+		}
+		assert.True(t, tokenFound, "Token contract should be present")
+		assert.True(t, proxyAdminFound, "ProxyAdmin contract should be present")
+	})
+
+	t.Run("dependency contract has correct source path", func(t *testing.T) {
+		publishFromBuiltArtifacts(t, c, testCtx.FoundryBuiltDir, "dep-source-path", "1.0.0", "SimpleProxy")
+
+		pkg, err := c.GetPackageVersion(context.Background(), "dep-source-path", "1.0.0")
+		require.NoError(t, err)
+		require.Len(t, pkg.Contracts, 1)
+
+		// Get full contract details
+		contracts, err := c.ListContracts(context.Background(), "dep-source-path", "1.0.0")
+		require.NoError(t, err)
+		require.Len(t, contracts, 1)
+
+		contract := contracts[0]
+		assert.Equal(t, "SimpleProxy", contract.Name)
+		// Source path should reference lib/ not src/
+		assert.Contains(t, contract.SourcePath, "lib/mock-vendor/contracts/SimpleProxy.sol", "source path should point to lib/")
+	})
+
+	t.Run("fetch dependency contract independently", func(t *testing.T) {
+		// Publish only a dependency contract
+		publishFromBuiltArtifacts(t, c, testCtx.FoundryBuiltDir, "proxy-admin-only", "1.0.0", "ProxyAdmin")
+
+		// Fetch it back
+		abi, err := c.GetABI(context.Background(), "proxy-admin-only", "1.0.0", "ProxyAdmin")
+		require.NoError(t, err)
+		assert.NotEmpty(t, abi, "ABI should be present for dependency contract")
+
+		var abiData []json.RawMessage
+		err = json.Unmarshal(abi, &abiData)
+		require.NoError(t, err)
+		assert.NotEmpty(t, abiData, "ABI should not be empty")
+
+		// Verify it has expected ProxyAdmin functions
+		abiStr := string(abi)
+		assert.Contains(t, abiStr, "transferOwnership")
+		assert.Contains(t, abiStr, "owner")
+	})
+
+	t.Run("publish src and deps as separate packages", func(t *testing.T) {
+		// Publish src contract as one package
+		publishFromBuiltArtifacts(t, c, testCtx.FoundryBuiltDir, "src-only-pkg", "1.0.0", "Token")
+
+		// Publish dependency contract as separate package
+		publishFromBuiltArtifacts(t, c, testCtx.FoundryBuiltDir, "dep-only-pkg", "1.0.0", "SimpleProxy")
+
+		// Verify both packages exist independently
+		srcPkg, err := c.GetPackageVersion(context.Background(), "src-only-pkg", "1.0.0")
+		require.NoError(t, err)
+		assert.Len(t, srcPkg.Contracts, 1)
+		assert.Equal(t, "Token", srcPkg.Contracts[0])
+
+		depPkg, err := c.GetPackageVersion(context.Background(), "dep-only-pkg", "1.0.0")
+		require.NoError(t, err)
+		assert.Len(t, depPkg.Contracts, 1)
+		assert.Equal(t, "SimpleProxy", depPkg.Contracts[0])
+	})
+
+	t.Run("dependency contract bytecode is valid", func(t *testing.T) {
+		publishFromBuiltArtifacts(t, c, testCtx.FoundryBuiltDir, "dep-bytecode", "1.0.0", "ProxyAdmin")
+
+		bytecode, err := c.GetBytecode(context.Background(), "dep-bytecode", "1.0.0", "ProxyAdmin")
+		require.NoError(t, err)
+		assert.NotEmpty(t, bytecode, "Bytecode should not be empty for dependency contract")
+		assert.Greater(t, len(bytecode), 100, "Bytecode should be substantial")
+
+		deployedBytecode, err := c.GetDeployedBytecode(context.Background(), "dep-bytecode", "1.0.0", "ProxyAdmin")
+		require.NoError(t, err)
+		assert.NotEmpty(t, deployedBytecode, "Deployed bytecode should not be empty")
+	})
+}

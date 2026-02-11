@@ -22,7 +22,7 @@ func Execute(version string) error {
 	}
 
 	// Global flags
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./contrafactory.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: contrafactory.toml or cf.toml)")
 	rootCmd.PersistentFlags().StringVar(&server, "server", "", "server URL (default from config)")
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "API key for authentication")
 
@@ -35,6 +35,7 @@ func Execute(version string) error {
 	rootCmd.AddCommand(createAuthCmd())
 	rootCmd.AddCommand(createDeploymentCmd())
 	rootCmd.AddCommand(createConfigCmd())
+	rootCmd.AddCommand(createDiscoverCmd())
 
 	return rootCmd.Execute()
 }
@@ -51,8 +52,8 @@ func getServer() string {
 		return env
 	}
 
-	// 3. Local config file
-	if config, err := loadLocalConfig(); err == nil && config.Server != "" {
+	// 3. Project config file (TOML)
+	if config := loadProjectConfigSilent(); config != nil && config.Server != "" {
 		return config.Server
 	}
 

@@ -38,6 +38,9 @@ type Builder interface {
 	Discover(dir string, opts DiscoverOptions) ([]string, error)
 	Parse(artifactPath string) (*Artifact, error)
 	GenerateVerificationInput(dir string, contractName string) ([]byte, error)
+
+	// Dependency discovery
+	DiscoverDependencies(dir string) ([]DependencyInfo, error)
 }
 
 // DiscoverOptions configures artifact discovery
@@ -46,6 +49,14 @@ type DiscoverOptions struct {
 	Contracts []string
 	// Patterns to exclude (e.g., "Test*", "Mock*")
 	Exclude []string
+	// Specific dependency contracts to include from lib/
+	IncludeDependencies []string
+}
+
+// DependencyInfo describes a third-party contract available in build artifacts
+type DependencyInfo struct {
+	Name       string // Contract name, e.g. "TransparentUpgradeableProxy"
+	SourcePath string // Source path, e.g. "lib/openzeppelin-contracts/.../TransparentUpgradeableProxy.sol"
 }
 
 // VerifyOptions configures verification

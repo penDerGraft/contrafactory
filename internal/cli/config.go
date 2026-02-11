@@ -5,36 +5,39 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
-// CLIConfig is the CLI configuration file structure
-type CLIConfig struct {
-	Server    string    `yaml:"server"`
-	Project   string    `yaml:"project,omitempty"`
-	Chain     string    `yaml:"chain,omitempty"`
-	Builder   string    `yaml:"builder,omitempty"`
-	EVM       EVMConfig `yaml:"evm,omitempty"`
-	Contracts []string  `yaml:"contracts,omitempty"`
-	Exclude   []string  `yaml:"exclude,omitempty"`
+// projectConfigFiles is the search order for project config files
+var projectConfigFiles = []string{"contrafactory.toml", "cf.toml"}
+
+// ProjectConfig is the project-level TOML configuration
+type ProjectConfig struct {
+	Server              string        `toml:"server"`
+	Project             string        `toml:"project,omitempty"`
+	Chain               string        `toml:"chain,omitempty"`
+	Builder             string        `toml:"builder,omitempty"`
+	Contracts           []string      `toml:"contracts,omitempty"`
+	Exclude             []string      `toml:"exclude,omitempty"`
+	IncludeDependencies []string      `toml:"include_dependencies,omitempty"`
+	EVM                 EVMConfigTOML `toml:"evm,omitempty"`
 }
 
-// EVMConfig contains EVM-specific configuration
-type EVMConfig struct {
-	Foundry FoundryConfig `yaml:"foundry,omitempty"`
-	Hardhat HardhatConfig `yaml:"hardhat,omitempty"`
+// EVMConfigTOML contains EVM-specific configuration for project config
+type EVMConfigTOML struct {
+	Foundry FoundryConfigTOML `toml:"foundry,omitempty"`
 }
 
-// FoundryConfig contains Foundry-specific configuration
-type FoundryConfig struct {
-	ArtifactsDir string `yaml:"artifacts_dir,omitempty"`
+// FoundryConfigTOML contains Foundry-specific configuration for project config
+type FoundryConfigTOML struct {
+	ArtifactsDir string `toml:"artifacts_dir,omitempty"`
 }
 
-// HardhatConfig contains Hardhat-specific configuration
-type HardhatConfig struct {
-	ArtifactsDir string `yaml:"artifacts_dir,omitempty"`
-	BuildInfoDir string `yaml:"build_info_dir,omitempty"`
+// ServerConfig is the global server configuration (stored in ~/.contrafactory/config.yaml)
+type ServerConfig struct {
+	Server string `yaml:"server"`
 }
 
 func createConfigCmd() *cobra.Command {
@@ -57,9 +60,9 @@ func createConfigInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Create config file",
-		Long: `Create a contrafactory.yaml configuration file in the current directory.
+		Long: `Create a contrafactory.toml configuration file in the current directory.
 
-This file stores project-specific settings like the server URL, 
+This file stores project-specific settings like the server URL,
 project name, and which contracts to include/exclude.
 
 EXAMPLES:
@@ -88,9 +91,9 @@ func createConfigShowCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "show",
 		Short: "Display current config",
-		Long: `Display the current configuration from contrafactory.yaml.
+		Long: `Display the current configuration.
 
-Shows both the local project config and the global config from ~/.contrafactory/config.yaml.
+Shows both the local project config (contrafactory.toml) and the global config from ~/.contrafactory/config.yaml.
 
 EXAMPLES:
   contrafactory config show
@@ -104,11 +107,13 @@ EXAMPLES:
 }
 
 func runConfigInit(serverURL, project string, force bool) error {
-	configPath := "contrafactory.yaml"
+	configPath := "contrafactory.toml"
 
-	// Check if config already exists
-	if _, err := os.Stat(configPath); err == nil && !force {
-		return fmt.Errorf("config file already exists at %s (use --force to overwrite)", configPath)
+	// Check if any config file already exists
+	for _, cfgFile := range projectConfigFiles {
+		if _, err := os.Stat(cfgFile); err == nil && !force {
+			return fmt.Errorf("config file already exists at %s (use --force to overwrite)", cfgFile)
+		}
 	}
 
 	// Default project name to current directory
@@ -119,41 +124,37 @@ func runConfigInit(serverURL, project string, force bool) error {
 		}
 	}
 
-	config := CLIConfig{
-		Server:  serverURL,
-		Project: project,
-		Chain:   "evm",
-		Exclude: []string{"Test*", "Mock*", "Script*"},
-	}
-
-	data, err := yaml.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	// Add helpful comments
-	content := fmt.Sprintf(`# Contrafactory CLI configuration
+	// Generate TOML config
+	content := fmt.Sprintf(`# Contrafactory project configuration
 # See https://github.com/pendergraft/contrafactory for documentation
 
-%s
-# Optional: specify which contracts to include
-# contracts:
-#   - MyContract
-#   - OtherContract
-`, string(data))
+server = "%s"
+project = "%s"
+chain = "evm"
+
+# Patterns to exclude from publishing
+exclude = ["Test", "Script", "Mock", "Deploy", "Setup"]
+
+# Specific contracts to publish (empty = all from src/)
+# contracts = ["MyContract", "OtherContract"]
+
+# Third-party contracts to publish as separate packages
+# Useful for proxy patterns that need companion contracts
+# include_dependencies = ["TransparentUpgradeableProxy", "ProxyAdmin"]
+`, serverURL, project)
 
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
-	fmt.Printf("✅ Created %s\n", configPath)
+	fmt.Printf("Created %s\n", configPath)
 	fmt.Println()
 	fmt.Println("Configuration:")
 	fmt.Printf("  Server:  %s\n", serverURL)
 	fmt.Printf("  Project: %s\n", project)
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("  1. Edit contrafactory.yaml to customize settings")
+	fmt.Printf("  1. Edit %s to customize settings\n", configPath)
 	fmt.Println("  2. Run 'contrafactory auth login' to authenticate")
 	fmt.Println("  3. Run 'contrafactory publish --version 1.0.0' to publish")
 
@@ -186,8 +187,8 @@ func runConfigShow() error {
 	fmt.Println()
 
 	// 3. Local project config
-	fmt.Println("3. Local project config (./contrafactory.yaml)")
-	localConfig, err := loadLocalConfig()
+	fmt.Println("3. Local project config (contrafactory.toml or cf.toml)")
+	projectConfig, configPath, err := loadProjectConfig()
 	if err != nil {
 		if os.IsNotExist(err) {
 			fmt.Println("   (not found)")
@@ -195,20 +196,24 @@ func runConfigShow() error {
 			fmt.Printf("   Error: %v\n", err)
 		}
 	} else {
-		if localConfig.Server != "" {
-			fmt.Printf("   server: %s\n", localConfig.Server)
+		fmt.Printf("   Loaded from: %s\n", configPath)
+		if projectConfig.Server != "" {
+			fmt.Printf("   server: %s\n", projectConfig.Server)
 		}
-		if localConfig.Project != "" {
-			fmt.Printf("   project: %s\n", localConfig.Project)
+		if projectConfig.Project != "" {
+			fmt.Printf("   project: %s\n", projectConfig.Project)
 		}
-		if localConfig.Chain != "" {
-			fmt.Printf("   chain: %s\n", localConfig.Chain)
+		if projectConfig.Chain != "" {
+			fmt.Printf("   chain: %s\n", projectConfig.Chain)
 		}
-		if len(localConfig.Contracts) > 0 {
-			fmt.Printf("   contracts: %v\n", localConfig.Contracts)
+		if len(projectConfig.Contracts) > 0 {
+			fmt.Printf("   contracts: %v\n", projectConfig.Contracts)
 		}
-		if len(localConfig.Exclude) > 0 {
-			fmt.Printf("   exclude: %v\n", localConfig.Exclude)
+		if len(projectConfig.Exclude) > 0 {
+			fmt.Printf("   exclude: %v\n", projectConfig.Exclude)
+		}
+		if len(projectConfig.IncludeDependencies) > 0 {
+			fmt.Printf("   include_dependencies: %v\n", projectConfig.IncludeDependencies)
 		}
 	}
 	fmt.Println()
@@ -224,7 +229,7 @@ func runConfigShow() error {
 			fmt.Printf("   Error: %v\n", err)
 		}
 	} else {
-		var globalConfig CLIConfig
+		var globalConfig ServerConfig
 		if err := yaml.Unmarshal(globalData, &globalConfig); err == nil {
 			if globalConfig.Server != "" {
 				fmt.Printf("   server: %s\n", globalConfig.Server)
@@ -265,16 +270,57 @@ func runConfigShow() error {
 	return nil
 }
 
-func loadLocalConfig() (*CLIConfig, error) {
-	data, err := os.ReadFile("contrafactory.yaml")
+// loadProjectConfig loads the project config from the first matching config file.
+// Returns the config, the path it was loaded from, and an error.
+func loadProjectConfig() (*ProjectConfig, string, error) {
+	// If --config flag was provided, use that directly
+	if cfgFile != "" {
+		config, err := loadProjectConfigFromPath(cfgFile)
+		if err != nil {
+			return nil, cfgFile, err
+		}
+		return config, cfgFile, nil
+	}
+
+	// Search for config files in order
+	for _, name := range projectConfigFiles {
+		if _, err := os.Stat(name); err == nil {
+			config, err := loadProjectConfigFromPath(name)
+			if err != nil {
+				return nil, name, err
+			}
+			return config, name, nil
+		}
+	}
+	return nil, "", os.ErrNotExist
+}
+
+// loadProjectConfigFromPath loads a project config from a specific path
+func loadProjectConfigFromPath(path string) (*ProjectConfig, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var config CLIConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, err
+	var config ProjectConfig
+	if _, err := toml.Decode(string(data), &config); err != nil {
+		return nil, fmt.Errorf("parsing TOML: %w", err)
 	}
 
 	return &config, nil
+}
+
+// loadProjectConfigSilent loads the project config without returning errors for missing files.
+// Returns nil if the file doesn't exist, but returns errors for parse failures.
+func loadProjectConfigSilent() *ProjectConfig {
+	config, _, err := loadProjectConfig()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		// Show actionable errors (parse failures)
+		fmt.Fprintf(os.Stderr, "Warning: failed to load project config: %v\n", err)
+		return nil
+	}
+	return config
 }

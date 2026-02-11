@@ -251,8 +251,36 @@ type FoundryArtifact struct {
 	DeployedBytecode struct {
 		Object string `json:"object"`
 	} `json:"deployedBytecode"`
-	StorageLayout     json.RawMessage `json:"storageLayout"`
-	Metadata          json.RawMessage `json:"metadata"`
+	StorageLayout json.RawMessage `json:"storageLayout"`
+	RawMetadata   string          `json:"rawMetadata"`
+	Metadata      json.RawMessage `json:"metadata"`
+}
+
+// FoundryMetadata represents the parsed rawMetadata field
+type FoundryMetadata struct {
+	Settings struct {
+		CompilationTarget map[string]string `json:"compilationTarget"`
+	} `json:"settings"`
+}
+
+// getArtifactSourcePath extracts the source path from artifact metadata
+func getArtifactSourcePath(t *testing.T, artifact FoundryArtifact, contractName string) string {
+	if artifact.RawMetadata == "" {
+		// Fallback to src/ prefix if no metadata
+		return fmt.Sprintf("src/%s.sol:%s", contractName, contractName)
+	}
+
+	var metadata FoundryMetadata
+	err := json.Unmarshal([]byte(artifact.RawMetadata), &metadata)
+	require.NoError(t, err, "Failed to parse rawMetadata")
+
+	// Get the first key from compilationTarget (it's the source path)
+	for k := range metadata.Settings.CompilationTarget {
+		return k
+	}
+
+	// Fallback
+	return fmt.Sprintf("src/%s.sol:%s", contractName, contractName)
 }
 
 // FoundryBuildInfo represents the build-info output from Foundry
@@ -305,6 +333,9 @@ func publishFromBuiltArtifacts(t *testing.T, c *client.Client, builtDir, package
 		artifactPath := getContractArtifactPath(builtDir, contractName)
 		artifact := parseFoundryArtifact(t, artifactPath)
 
+		// Extract source path from artifact metadata
+		sourcePath := getArtifactSourcePath(t, artifact, contractName)
+
 		// Use empty array as default to avoid null values
 		storageLayout := json.RawMessage([]byte("[]"))
 		if len(artifact.StorageLayout) > 0 {
@@ -347,7 +378,7 @@ func publishFromBuiltArtifacts(t *testing.T, c *client.Client, builtDir, package
 
 		artifacts = append(artifacts, client.Artifact{
 			Name:              contractName,
-			SourcePath:        fmt.Sprintf("src/%s.sol:%s", contractName, contractName),
+			SourcePath:        sourcePath,
 			ABI:               abi,
 			Bytecode:          artifact.Bytecode.Object,
 			DeployedBytecode:  artifact.DeployedBytecode.Object,
@@ -368,8 +399,40 @@ func publishFromBuiltArtifacts(t *testing.T, c *client.Client, builtDir, package
 
 // getContractArtifactPath finds a contract's artifact file in the built output
 func getContractArtifactPath(builtDir, contractName string) string {
-	// Foundry stores artifacts at out/{contractName}.sol/{contractName}.json
-	return filepath.Join(builtDir, fmt.Sprintf("%s.sol/%s.json", contractName, contractName))
+	// Foundry stores artifacts at out/{sourcePath}/{contractName}.sol/{contractName}.json
+	// For src/ contracts: out/{contractName}.sol/{contractName}.json
+	// For lib/ contracts: out/lib/.../{contractName}.sol/{contractName}.json
+
+	// First, try the simple path (src contracts)
+	simplePath := filepath.Join(builtDir, fmt.Sprintf("%s.sol/%s.json", contractName, contractName))
+	if _, err := os.Stat(simplePath); err == nil {
+		return simplePath
+	}
+
+	// Search for the artifact file anywhere in the output directory
+	// Look for {contractName}.json inside a {contractName}.sol directory
+	var foundPath string
+	filepath.Walk(builtDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		// Check if this is {contractName}.json inside {contractName}.sol
+		if filepath.Base(path) == contractName+".json" {
+			dir := filepath.Base(filepath.Dir(path))
+			if dir == contractName+".sol" {
+				foundPath = path
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+
+	if foundPath != "" {
+		return foundPath
+	}
+
+	// Fallback to simple path (will fail later with clear error)
+	return simplePath
 }
 
 // assertHTTPError asserts that an error is an APIError with the expected code
