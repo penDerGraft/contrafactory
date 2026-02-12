@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pendergraft/contrafactory/internal/config"
+	"github.com/pendergraft/contrafactory/internal/observability/metrics"
 	"github.com/pendergraft/contrafactory/internal/server"
 	"github.com/pendergraft/contrafactory/internal/storage"
 )
@@ -311,6 +312,12 @@ func runServe() error {
 	logger := setupLogger(cfg)
 	logger.Info("starting contrafactory-server", "version", version)
 
+	// Initialize metrics
+	metrics.Init(cfg.Metrics.Enabled, cfg.Metrics.ServiceName)
+	if cfg.Metrics.Enabled {
+		logger.Info("metrics enabled", "port", cfg.Metrics.Port)
+	}
+
 	// Initialize storage
 	store, err := storage.New(cfg.Storage, logger)
 	if err != nil {
@@ -326,8 +333,8 @@ func runServe() error {
 	// Create server
 	srv := server.New(cfg, store, logger)
 
-	// Create HTTP server with configurable timeouts
-	httpServer := &http.Server{
+	// Create main HTTP server with configurable timeouts
+	mainServer := &http.Server{
 		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
 		Handler:      srv.Handler(),
 		ReadTimeout:  time.Duration(cfg.Server.ReadTimeout) * time.Second,
@@ -335,14 +342,35 @@ func runServe() error {
 		IdleTimeout:  time.Duration(cfg.Server.IdleTimeout) * time.Second,
 	}
 
-	// Start server in goroutine
-	errChan := make(chan error, 1)
+	// Create metrics server if enabled
+	var metricsServer *http.Server
+	errChan := make(chan error, 2)
+
+	if cfg.Metrics.Enabled {
+		metricsServer = &http.Server{
+			Addr:        fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Metrics.Port),
+			Handler:     srv.MetricsHandler(),
+			ReadTimeout: 10 * time.Second,
+		}
+	}
+
+	// Start main server in goroutine
 	go func() {
-		logger.Info("server listening", "addr", httpServer.Addr)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errChan <- err
+		logger.Info("server listening", "addr", mainServer.Addr)
+		if err := mainServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errChan <- fmt.Errorf("main server: %w", err)
 		}
 	}()
+
+	// Start metrics server in goroutine if enabled
+	if cfg.Metrics.Enabled {
+		go func() {
+			logger.Info("metrics listening", "addr", metricsServer.Addr)
+			if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				errChan <- fmt.Errorf("metrics server: %w", err)
+			}
+		}()
+	}
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
@@ -350,7 +378,7 @@ func runServe() error {
 
 	select {
 	case err := <-errChan:
-		return fmt.Errorf("server error: %w", err)
+		return err
 	case sig := <-quit:
 		logger.Info("shutting down", "signal", sig)
 	}
@@ -359,7 +387,16 @@ func runServe() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := httpServer.Shutdown(ctx); err != nil {
+	// Shutdown metrics server first
+	if metricsServer != nil {
+		logger.Info("shutting down metrics server")
+		if err := metricsServer.Shutdown(ctx); err != nil {
+			logger.Error("metrics shutdown error", "err", err)
+		}
+	}
+
+	// Shutdown main server
+	if err := mainServer.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown error: %w", err)
 	}
 

@@ -16,6 +16,7 @@ type Config struct {
 	RateLimit RateLimitConfig
 	Security  SecurityConfig
 	Proxy     ProxyConfig
+	Metrics   MetricsConfig
 }
 
 // ServerConfig holds HTTP server configuration
@@ -26,6 +27,13 @@ type ServerConfig struct {
 	WriteTimeout   int // seconds
 	IdleTimeout    int // seconds
 	RequestTimeout int // seconds
+}
+
+// MetricsConfig holds metrics/observability settings
+type MetricsConfig struct {
+	Enabled     bool
+	ServiceName string
+	Port        int // separate port for metrics server
 }
 
 // StorageConfig holds storage configuration
@@ -139,6 +147,11 @@ func Load() (*Config, error) {
 		Proxy: ProxyConfig{
 			TrustProxy:     getEnvBool("TRUST_PROXY", false),
 			TrustedProxies: getEnvStringSlice("TRUSTED_PROXIES", []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}),
+		},
+		Metrics: MetricsConfig{
+			Enabled:     getEnvBool("OTEL_METRICS_ENABLED", true),
+			ServiceName: getEnv("OTEL_SERVICE_NAME", "contrafactory"),
+			Port:        getEnvInt("METRICS_PORT", 9090),
 		},
 	}
 

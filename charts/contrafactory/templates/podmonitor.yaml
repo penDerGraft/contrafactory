@@ -13,7 +13,7 @@ spec:
     matchLabels:
       {{- include "contrafactory.selectorLabels" . | nindent 6 }}
   podMetricsEndpoints:
-    - port: http
+    - port: metrics
       path: {{ .Values.metrics.path | default "/metrics" }}
       interval: {{ .Values.metrics.interval | default "30s" }}
 {{- end }}

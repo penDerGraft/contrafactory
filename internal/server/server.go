@@ -19,6 +19,7 @@ import (
 	"github.com/pendergraft/contrafactory/internal/middleware/ratelimit"
 	"github.com/pendergraft/contrafactory/internal/middleware/realip"
 	"github.com/pendergraft/contrafactory/internal/middleware/security"
+	"github.com/pendergraft/contrafactory/internal/observability/metrics"
 	packagesDomain "github.com/pendergraft/contrafactory/internal/packages/domain"
 	packagesTransport "github.com/pendergraft/contrafactory/internal/packages/transport"
 	"github.com/pendergraft/contrafactory/internal/storage"
@@ -73,6 +74,11 @@ func (s *Server) Handler() http.Handler {
 	return s.router
 }
 
+// MetricsHandler returns the metrics HTTP handler for separate metrics server
+func (s *Server) MetricsHandler() http.Handler {
+	return metrics.Handler()
+}
+
 func (s *Server) setupMiddleware() {
 	// Order matters! Security middleware runs first to block malicious requests early.
 
@@ -99,6 +105,7 @@ func (s *Server) setupMiddleware() {
 	// 5. Standard middleware
 	s.router.Use(middleware.RequestID)
 	s.router.Use(logging.Middleware(s.logger))
+	s.router.Use(metrics.Middleware)
 	s.router.Use(middleware.Recoverer)
 	s.router.Use(middleware.Compress(5))
 

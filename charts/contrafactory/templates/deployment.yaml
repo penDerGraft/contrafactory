@@ -91,6 +91,13 @@ spec:
               value: {{ .Values.serverTimeouts.idleTimeout | quote }}
             - name: SERVER_REQUEST_TIMEOUT
               value: {{ .Values.serverTimeouts.requestTimeout | quote }}
+            # Metrics / Observability
+            - name: OTEL_METRICS_ENABLED
+              value: {{ .Values.metrics.enabled | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.metrics.serviceName | quote }}
+            - name: METRICS_PORT
+              value: {{ .Values.metrics.port | quote }}
             {{- if eq .Values.storage.type "sqlite" }}
             - name: STORAGE_TYPE
               value: "sqlite"

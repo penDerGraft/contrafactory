@@ -206,6 +206,12 @@ extraVolumeMounts: []
 
 # Prometheus metrics configuration
 metrics:
+  # Enable/disable metrics collection
+  enabled: true
+  # Service name for metric labels
+  serviceName: "contrafactory"
+  # Separate port for metrics server
+  port: 9090
   # Path where metrics are exposed
   path: /metrics
   # Scrape interval for Prometheus
