@@ -113,6 +113,77 @@ func TestClient_Publish(t *testing.T) {
 	}
 }
 
+func TestClient_GetDeployment(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/deployments/31337/0x1234567890abcdef1234567890abcdef12345678" {
+			t.Errorf("Expected path /api/v1/deployments/31337/0x1234567890abcdef1234567890abcdef12345678, got %s", r.URL.Path)
+		}
+
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":              "deploy-123",
+			"packageId":       "pkg-456",
+			"contractName":    "Token",
+			"chainId":         "31337",
+			"address":         "0x1234567890abcdef1234567890abcdef12345678",
+			"blockNumber":     12345,
+			"verified":        true,
+			"verifiedOn":      []string{"etherscan", "blockscout"},
+			"createdAt":       "2024-01-15T10:30:00Z",
+		})
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "")
+	deployment, err := client.GetDeployment(context.Background(), "31337", "0x1234567890abcdef1234567890abcdef12345678")
+	if err != nil {
+		t.Fatalf("GetDeployment() error = %v", err)
+	}
+
+	if deployment.ID != "deploy-123" {
+		t.Errorf("GetDeployment().ID = %s, want deploy-123", deployment.ID)
+	}
+	if deployment.ContractName != "Token" {
+		t.Errorf("GetDeployment().ContractName = %s, want Token", deployment.ContractName)
+	}
+	if !deployment.Verified {
+		t.Errorf("GetDeployment().Verified = false, want true")
+	}
+	if len(deployment.VerifiedOn) != 2 {
+		t.Errorf("GetDeployment().VerifiedOn has %d items, want 2", len(deployment.VerifiedOn))
+	}
+	if deployment.VerifiedOn[0] != "etherscan" || deployment.VerifiedOn[1] != "blockscout" {
+		t.Errorf("GetDeployment().VerifiedOn = %v, want [etherscan blockscout]", deployment.VerifiedOn)
+	}
+}
+
+func TestClient_GetDeployment_EmptyVerifiedOn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":           "deploy-456",
+			"contractName": "Token",
+			"chainId":      "31337",
+			"address":      "0x1234567890abcdef1234567890abcdef12345678",
+			"verified":     false,
+			"verifiedOn":   []string{},
+			"createdAt":    "2024-01-15T10:30:00Z",
+		})
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "")
+	deployment, err := client.GetDeployment(context.Background(), "31337", "0x1234567890abcdef1234567890abcdef12345678")
+	if err != nil {
+		t.Fatalf("GetDeployment() error = %v", err)
+	}
+
+	if deployment.VerifiedOn == nil {
+		t.Error("GetDeployment().VerifiedOn should not be nil when API returns empty array")
+	}
+	if len(deployment.VerifiedOn) != 0 {
+		t.Errorf("GetDeployment().VerifiedOn = %v, want empty slice", deployment.VerifiedOn)
+	}
+}
+
 func TestClient_ErrorHandling(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

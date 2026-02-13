@@ -73,11 +73,13 @@ func TestHandler_Verify(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 
-		var resp domain.VerifyResult
+		var resp VerifyResponse
 		err := json.Unmarshal(rec.Body.Bytes(), &resp)
 		require.NoError(t, err)
-		assert.True(t, resp.Verified)
-		assert.Equal(t, "full", resp.MatchType)
+		assert.True(t, resp.Success)
+		assert.Equal(t, "Bytecode matches", resp.Message)
+		assert.Equal(t, "1", resp.ChainID)
+		assert.Equal(t, "0x1234567890abcdef1234567890abcdef12345678", resp.Address)
 	})
 
 	t.Run("pending verification", func(t *testing.T) {
@@ -97,11 +99,11 @@ func TestHandler_Verify(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 
-		var resp domain.VerifyResult
+		var resp VerifyResponse
 		err := json.Unmarshal(rec.Body.Bytes(), &resp)
 		require.NoError(t, err)
-		assert.False(t, resp.Verified)
-		assert.Equal(t, "pending", resp.MatchType)
+		assert.False(t, resp.Success)
+		assert.Equal(t, "Verification pending", resp.Message)
 	})
 }
 

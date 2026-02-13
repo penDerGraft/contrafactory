@@ -125,6 +125,9 @@ func (s *Server) setupMiddleware() {
 }
 
 func (s *Server) setupRoutes() {
+	// OpenAPI spec
+	s.router.Get("/api/openapi.yaml", s.handleOpenAPISpec)
+
 	// Health checks
 	s.router.Get("/health", s.handleHealth)
 	s.router.Get("/healthz", s.handleHealth)
@@ -179,6 +182,11 @@ func (s *Server) setupRoutes() {
 // Health check handler
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleOpenAPISpec serves the OpenAPI specification.
+func (s *Server) handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "spec/openapi.yaml")
 }
 
 // Helper functions

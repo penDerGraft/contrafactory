@@ -78,17 +78,18 @@ type VersionDeployment struct {
 
 // Deployment represents a recorded deployment
 type Deployment struct {
-	ID              string `json:"id"`
-	PackageID       string `json:"packageId"`
-	ContractName    string `json:"contractName"`
-	Chain           string `json:"chain"`
-	ChainID         string `json:"chainId"`
-	Address         string `json:"address"`
-	DeployerAddress string `json:"deployerAddress,omitempty"`
-	TxHash          string `json:"txHash,omitempty"`
-	BlockNumber     int64  `json:"blockNumber,omitempty"`
-	Verified        bool   `json:"verified"`
-	CreatedAt       string `json:"createdAt"`
+	ID              string   `json:"id"`
+	PackageID       string   `json:"packageId"`
+	ContractName    string   `json:"contractName"`
+	Chain           string   `json:"chain"`
+	ChainID         string   `json:"chainId"`
+	Address         string   `json:"address"`
+	DeployerAddress string   `json:"deployerAddress,omitempty"`
+	TxHash          string   `json:"txHash,omitempty"`
+	BlockNumber     int64    `json:"blockNumber,omitempty"`
+	Verified        bool     `json:"verified"`
+	VerifiedOn      []string `json:"verifiedOn,omitempty"`
+	CreatedAt       string   `json:"createdAt"`
 }
 
 // PublishRequest is the request for publishing a package

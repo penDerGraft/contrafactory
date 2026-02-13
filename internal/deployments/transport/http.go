@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -78,23 +79,23 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := make([]map[string]any, len(result.Deployments))
+	data := make([]DeploymentItem, len(result.Deployments))
 	for i, d := range result.Deployments {
-		data[i] = map[string]any{
-			"chainId":      d.ChainID,
-			"address":      d.Address,
-			"contractName": d.ContractName,
-			"verified":     d.Verified,
-			"txHash":       d.TxHash,
+		data[i] = DeploymentItem{
+			ChainID:      d.ChainID,
+			Address:      d.Address,
+			ContractName: d.ContractName,
+			Verified:     d.Verified,
+			TxHash:       d.TxHash,
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": data,
-		"pagination": map[string]any{
-			"limit":      limit,
-			"hasMore":    result.HasMore,
-			"nextCursor": result.NextCursor,
+	writeJSON(w, http.StatusOK, DeploymentListResponse{
+		Data: data,
+		Pagination: Pagination{
+			Limit:      limit,
+			HasMore:    result.HasMore,
+			NextCursor: result.NextCursor,
 		},
 	})
 }
@@ -106,13 +107,13 @@ func (h *Handler) handleRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req domain.RecordRequest
+	var req RecordRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON")
 		return
 	}
 
-	deployment, err := h.svc.Record(r.Context(), req)
+	deployment, err := h.svc.Record(r.Context(), req.ToDomain())
 	if err != nil {
 		switch {
 		case errors.Is(err, domain.ErrPackageNotFound):
@@ -127,12 +128,12 @@ func (h *Handler) handleRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":       deployment.ID,
-		"chainId":  deployment.ChainID,
-		"address":  deployment.Address,
-		"verified": deployment.Verified,
-		"message":  "Deployment recorded successfully",
+	writeJSON(w, http.StatusCreated, RecordResponse{
+		ID:       deployment.ID,
+		ChainID:  deployment.ChainID,
+		Address:  deployment.Address,
+		Verified: deployment.Verified,
+		Message:  "Deployment recorded successfully",
 	})
 }
 
@@ -150,18 +151,22 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":              deployment.ID,
-		"packageId":       deployment.PackageID,
-		"chainId":         deployment.ChainID,
-		"address":         deployment.Address,
-		"contractName":    deployment.ContractName,
-		"deployerAddress": deployment.DeployerAddress,
-		"txHash":          deployment.TxHash,
-		"blockNumber":     deployment.BlockNumber,
-		"verified":        deployment.Verified,
-		"verifiedOn":      deployment.VerifiedOn,
-		"createdAt":       deployment.CreatedAt,
+	verifiedOn := deployment.VerifiedOn
+	if verifiedOn == nil {
+		verifiedOn = []string{}
+	}
+	writeJSON(w, http.StatusOK, DeploymentResponse{
+		ID:              deployment.ID,
+		PackageID:       deployment.PackageID,
+		ChainID:         deployment.ChainID,
+		Address:         deployment.Address,
+		ContractName:    deployment.ContractName,
+		DeployerAddress: deployment.DeployerAddress,
+		TxHash:          deployment.TxHash,
+		BlockNumber:     deployment.BlockNumber,
+		Verified:        deployment.Verified,
+		VerifiedOn:      verifiedOn,
+		CreatedAt:       deployment.CreatedAt.Format(time.RFC3339),
 	})
 }
 
@@ -176,10 +181,7 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]any{
-			"code":    code,
-			"message": message,
-		},
+	json.NewEncoder(w).Encode(ErrorResponse{
+		Error: ErrorDetail{Code: code, Message: message},
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -40,13 +41,13 @@ func (h *Handler) handleVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req domain.VerifyRequest
+	var req VerifyRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON")
 		return
 	}
 
-	result, err := h.svc.Verify(r.Context(), req)
+	result, err := h.svc.Verify(r.Context(), req.ToDomain())
 	if err != nil {
 		switch {
 		case errors.Is(err, domain.ErrNotFound):
@@ -63,7 +64,12 @@ func (h *Handler) handleVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, VerifyResponse{
+		Success: result.Verified,
+		Message: result.Message,
+		ChainID: strconv.Itoa(req.ChainID),
+		Address: req.Address,
+	})
 }
 
 // Helper functions
@@ -77,10 +83,7 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]any{
-			"code":    code,
-			"message": message,
-		},
+	json.NewEncoder(w).Encode(ErrorResponse{
+		Error: ErrorDetail{Code: code, Message: message},
 	})
 }

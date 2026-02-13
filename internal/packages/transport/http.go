@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -116,23 +117,22 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert to response format
-	data := make([]map[string]any, len(result.Packages))
+	data := make([]PackageItem, len(result.Packages))
 	for i, p := range result.Packages {
-		data[i] = map[string]any{
-			"name":     p.Name,
-			"chain":    p.Chain,
-			"builder":  p.Builder,
-			"versions": p.Versions,
+		data[i] = PackageItem{
+			Name:     p.Name,
+			Chain:    p.Chain,
+			Builder:  p.Builder,
+			Versions: p.Versions,
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"data": data,
-		"pagination": map[string]any{
-			"limit":      limit,
-			"hasMore":    result.HasMore,
-			"nextCursor": result.NextCursor,
+	writeJSON(w, http.StatusOK, ListResponse{
+		Data: data,
+		Pagination: Pagination{
+			Limit:      limit,
+			HasMore:    result.HasMore,
+			NextCursor: result.NextCursor,
 		},
 	})
 }
@@ -151,11 +151,11 @@ func (h *Handler) handleGetVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"name":     result.Name,
-		"chain":    result.Chain,
-		"builder":  result.Builder,
-		"versions": result.Versions,
+	writeJSON(w, http.StatusOK, VersionsResponse{
+		Name:     result.Name,
+		Chain:    result.Chain,
+		Builder:  result.Builder,
+		Versions: result.Versions,
 	})
 }
 
@@ -184,19 +184,21 @@ func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
 		contractNames[i] = c.Name
 	}
 
-	response := map[string]any{
-		"name":            pkg.Name,
-		"version":         pkg.Version,
-		"chain":           pkg.Chain,
-		"builder":         pkg.Builder,
-		"compilerVersion": pkg.CompilerVersion,
-		"contracts":       contractNames,
-		"createdAt":       pkg.CreatedAt,
+	response := PackageResponse{
+		Name:            pkg.Name,
+		Version:         pkg.Version,
+		Chain:           pkg.Chain,
+		Builder:         pkg.Builder,
+		CompilerVersion: pkg.CompilerVersion,
+		Contracts:       contractNames,
+		CreatedAt:       pkg.CreatedAt.Format(time.RFC3339),
 	}
-
-	// Include metadata if present (non-empty)
 	if len(pkg.Metadata) > 0 {
-		response["metadata"] = pkg.Metadata
+		metadata := make(map[string]any)
+		for k, v := range pkg.Metadata {
+			metadata[k] = v
+		}
+		response.Metadata = metadata
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -215,7 +217,7 @@ func (h *Handler) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req domain.PublishRequest
+	var req PublishRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid JSON")
 		return
@@ -223,7 +225,7 @@ func (h *Handler) handlePublish(w http.ResponseWriter, r *http.Request) {
 
 	ownerID := auth.GetOwnerIDFromContext(r.Context())
 
-	if err := h.svc.Publish(r.Context(), name, version, ownerID, req); err != nil {
+	if err := h.svc.Publish(r.Context(), name, version, ownerID, req.ToDomain()); err != nil {
 		switch {
 		case errors.Is(err, domain.ErrInvalidName):
 			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
@@ -239,10 +241,10 @@ func (h *Handler) handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"name":    name,
-		"version": version,
-		"message": "Package published successfully",
+	writeJSON(w, http.StatusCreated, PublishResponse{
+		Name:    name,
+		Version: version,
+		Message: "Package published successfully",
 	})
 }
 
@@ -303,9 +305,7 @@ func (h *Handler) handleGetVersionDeployments(w http.ResponseWriter, r *http.Req
 
 	// Check if deployment lister is configured
 	if h.deployments == nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"deployments": []any{},
-		})
+		writeJSON(w, http.StatusOK, DeploymentsResponse{Deployments: []DeploymentSummary{}})
 		return
 	}
 
@@ -315,9 +315,7 @@ func (h *Handler) handleGetVersionDeployments(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"deployments": deployments,
-	})
+	writeJSON(w, http.StatusOK, DeploymentsResponse{Deployments: deployments})
 }
 
 func (h *Handler) handleListContracts(w http.ResponseWriter, r *http.Request) {
@@ -334,18 +332,16 @@ func (h *Handler) handleListContracts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := make([]map[string]any, len(contracts))
+	contractItems := make([]ContractItem, len(contracts))
 	for i, c := range contracts {
-		data[i] = map[string]any{
-			"name":       c.Name,
-			"sourcePath": c.SourcePath,
-			"chain":      c.Chain,
+		contractItems[i] = ContractItem{
+			Name:       c.Name,
+			SourcePath: c.SourcePath,
+			Chain:      c.Chain,
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"contracts": data,
-	})
+	writeJSON(w, http.StatusOK, ContractsResponse{Contracts: contractItems})
 }
 
 func (h *Handler) handleGetContract(w http.ResponseWriter, r *http.Request) {
@@ -363,11 +359,11 @@ func (h *Handler) handleGetContract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"name":       contract.Name,
-		"sourcePath": contract.SourcePath,
-		"chain":      contract.Chain,
-		"license":    contract.License,
+	writeJSON(w, http.StatusOK, ContractResponse{
+		Name:       contract.Name,
+		SourcePath: contract.SourcePath,
+		Chain:      contract.Chain,
+		License:    contract.License,
 	})
 }
 
@@ -427,10 +423,7 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{
-		"error": map[string]any{
-			"code":    code,
-			"message": message,
-		},
+	json.NewEncoder(w).Encode(ErrorResponse{
+		Error: ErrorDetail{Code: code, Message: message},
 	})
 }

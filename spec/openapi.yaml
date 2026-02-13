@@ -1,0 +1,1106 @@
+openapi: "3.1.0"
+
+info:
+  title: Contrafactory API
+  description: Smart contract artifact registry API
+  version: "1.0"
+  contact:
+    name: API Support
+    url: https://github.com/pendergraft/contrafactory/issues
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  termsOfService: https://contrafactory.dev/terms
+
+servers:
+  - url: https://api.contrafactory.dev
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: deployments
+    description: Contract deployment recording and lookup
+  - name: packages
+    description: Package publishing and retrieval
+  - name: verification
+    description: Contract verification against packages
+
+paths:
+  /api/openapi.yaml:
+    get:
+      operationId: getOpenApiSpec
+      summary: OpenAPI Specification
+      description: Download the OpenAPI YAML specification
+      tags: []
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI specification
+        "404":
+          description: Specification not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/deployments:
+    get:
+      operationId: listDeployments
+      summary: List deployments
+      description: List all deployments with filtering and pagination
+      tags: [deployments]
+      security: []
+      parameters:
+        - name: chain_id
+          in: query
+          description: Filter by chain ID (e.g. 1 for mainnet)
+          schema:
+            type: string
+            example: "1"
+        - name: chain
+          in: query
+          description: Filter by chain name
+          schema:
+            type: string
+            example: mainnet
+        - name: package
+          in: query
+          description: Filter by package name
+          schema:
+            type: string
+        - name: verified
+          in: query
+          description: Filter by verification status
+          schema:
+            type: string
+            enum: ["true", "false"]
+        - name: limit
+          in: query
+          description: Page limit (max 100)
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          description: Pagination cursor from previous response
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentListResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: recordDeployment
+      summary: Record deployment
+      description: Record a new contract deployment (requires API key)
+      tags: [deployments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordDeploymentRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordDeploymentResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/deployments/{chainId}/{address}:
+    get:
+      operationId: getDeployment
+      summary: Get deployment
+      description: Get a specific deployment by chain ID and contract address
+      tags: [deployments]
+      security: []
+      parameters:
+        - name: chainId
+          in: path
+          required: true
+          description: Chain ID (e.g. 1 for Ethereum mainnet)
+          schema:
+            type: string
+            example: "1"
+        - name: address
+          in: path
+          required: true
+          description: Contract address (hex, 0x-prefixed)
+          schema:
+            type: string
+            example: "0x1234567890123456789012345678901234567890"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentResponse"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages:
+    get:
+      operationId: listPackages
+      summary: List packages
+      description: List all packages with pagination and filtering
+      tags: [packages]
+      security: []
+      parameters:
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: chain
+          in: query
+          description: Filter by chain name
+          schema:
+            type: string
+        - name: sort
+          in: query
+          description: Sort field (name, created_at)
+          schema:
+            type: string
+            enum: [name, created_at]
+        - name: order
+          in: query
+          description: Sort order
+          schema:
+            type: string
+            enum: [asc, desc]
+        - name: limit
+          in: query
+          description: Page limit (max 100)
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: cursor
+          in: query
+          description: Pagination cursor
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageListResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}:
+    get:
+      operationId: getPackageVersions
+      summary: Get package versions
+      description: Get all versions of a package
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Package name
+          schema:
+            type: string
+        - name: include_prerelease
+          in: query
+          description: Include prerelease versions
+          schema:
+            type: string
+            default: "false"
+            enum: ["true", "false"]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionsResponse"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}/{version}:
+    get:
+      operationId: getPackageVersion
+      summary: Get package version
+      description: Get details of a specific package version
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackageResponse"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: publishPackage
+      summary: Publish package
+      description: Publish a new package version (requires API key)
+      tags: [packages]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishPackageRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deletePackage
+      summary: Delete package
+      description: Delete a specific package version (requires API key)
+      tags: [packages]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}/{version}/archive:
+    get:
+      operationId: getPackageArchive
+      summary: Download package archive
+      description: Download a tar.gz archive of the package
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}/{version}/contracts:
+    get:
+      operationId: listContracts
+      summary: List contracts
+      description: List all contracts in a package version
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractsResponse"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}/{version}/contracts/{contract}:
+    get:
+      operationId: getContract
+      summary: Get contract
+      description: Get details of a specific contract
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: contract
+          in: path
+          required: true
+          description: Contract name
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContractResponse"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}/{version}/contracts/{contract}/abi:
+    get:
+      operationId: getContractAbi
+      summary: Get contract ABI
+      description: Get the ABI (Application Binary Interface) for a contract
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: contract
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Solidity ABI JSON
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}/{version}/contracts/{contract}/bytecode:
+    get:
+      operationId: getContractBytecode
+      summary: Get bytecode
+      description: Get the creation bytecode for a contract
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: contract
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Hex-encoded bytecode
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}/{version}/contracts/{contract}/deployed-bytecode:
+    get:
+      operationId: getContractDeployedBytecode
+      summary: Get deployed bytecode
+      description: Get the deployed (runtime) bytecode for a contract
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: contract
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Hex-encoded bytecode
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}/{version}/contracts/{contract}/standard-json-input:
+    get:
+      operationId: getContractStandardJsonInput
+      summary: Get standard JSON input
+      description: Get the Solidity standard JSON input for a contract
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: contract
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}/{version}/contracts/{contract}/storage-layout:
+    get:
+      operationId: getContractStorageLayout
+      summary: Get storage layout
+      description: Get the storage layout for a contract
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: contract
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/packages/{name}/{version}/deployments:
+    get:
+      operationId: getPackageDeployments
+      summary: Get package deployments
+      description: Get deployments for a specific package version
+      tags: [packages]
+      security: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentsResponse"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/verify:
+    post:
+      operationId: verifyContract
+      summary: Verify contract
+      description: Verify a deployed contract against a published package
+      tags: [verification]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authenticated endpoints (publish, record, delete)
+
+  schemas:
+    # Shared
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Error code (e.g. NOT_FOUND, INVALID_REQUEST)
+          example: NOT_FOUND
+        message:
+          type: string
+          description: Human-readable error message
+          example: Package not found
+    Pagination:
+      type: object
+      required: [limit, hasMore, nextCursor]
+      properties:
+        limit:
+          type: integer
+          description: Page size used
+        hasMore:
+          type: boolean
+          description: Whether more results exist
+        nextCursor:
+          type: string
+          description: Cursor for next page (empty if no more)
+
+    # Deployments
+    RecordDeploymentRequest:
+      type: object
+      required: [package, version, contract, chainId, address]
+      properties:
+        package:
+          type: string
+          description: Package name
+          example: my-contract
+        version:
+          type: string
+          description: Package version
+          example: "1.0.0"
+        contract:
+          type: string
+          description: Contract name within the package
+          example: MyContract
+        chainId:
+          type: integer
+          description: Chain ID (e.g. 1 for Ethereum mainnet)
+          example: 1
+        address:
+          type: string
+          description: Deployed contract address (hex, 0x-prefixed)
+          example: "0x1234567890123456789012345678901234567890"
+        txHash:
+          type: string
+          description: Deployment transaction hash
+        deployerAddress:
+          type: string
+          description: Address that deployed the contract
+        blockNumber:
+          type: integer
+          description: Block number of deployment
+        constructorArgs:
+          type: string
+          description: Hex-encoded constructor arguments
+        libraries:
+          type: object
+          additionalProperties:
+            type: string
+          description: Library address mappings
+    RecordDeploymentResponse:
+      type: object
+      required: [id, chainId, address, verified, message]
+      properties:
+        id:
+          type: string
+          description: Deployment record ID
+        chainId:
+          type: string
+          description: Chain ID
+        address:
+          type: string
+          description: Contract address
+        verified:
+          type: boolean
+          description: Whether the deployment is verified
+        message:
+          type: string
+          description: Status message
+    DeploymentItem:
+      type: object
+      properties:
+        chainId:
+          type: string
+        address:
+          type: string
+        contractName:
+          type: string
+        verified:
+          type: boolean
+        txHash:
+          type: string
+    DeploymentListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeploymentItem"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    DeploymentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        packageId:
+          type: string
+        chainId:
+          type: string
+        address:
+          type: string
+        contractName:
+          type: string
+        deployerAddress:
+          type: string
+        txHash:
+          type: string
+        blockNumber:
+          type: integer
+        verified:
+          type: boolean
+        verifiedOn:
+          type: array
+          items:
+            type: string
+          description: Verification platforms (e.g. etherscan, blockscout)
+        createdAt:
+          type: string
+          format: date-time
+
+    # Packages
+    PublishPackageRequest:
+      type: object
+      required: [chain, artifacts]
+      properties:
+        chain:
+          type: string
+          description: Chain name (e.g. mainnet)
+          example: mainnet
+        builder:
+          type: string
+          description: Build tool used (e.g. foundry, hardhat)
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactRequest"
+          minItems: 1
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    ArtifactRequest:
+      type: object
+      required: [name, sourcePath]
+      properties:
+        name:
+          type: string
+        sourcePath:
+          type: string
+        chain:
+          type: string
+        abi:
+          type: object
+          description: Solidity ABI JSON
+        bytecode:
+          type: string
+          description: Hex-encoded creation bytecode
+        deployedBytecode:
+          type: string
+          description: Hex-encoded runtime bytecode
+        standardJsonInput:
+          type: object
+          description: Solidity standard JSON input
+        storageLayout:
+          type: object
+          description: Storage layout JSON
+        compiler:
+          $ref: "#/components/schemas/CompilerInfoRequest"
+    CompilerInfoRequest:
+      type: object
+      properties:
+        version:
+          type: string
+        optimizer:
+          $ref: "#/components/schemas/OptimizerInfoRequest"
+        evmVersion:
+          type: string
+        viaIR:
+          type: boolean
+    OptimizerInfoRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        runs:
+          type: integer
+    PublishResponse:
+      type: object
+      required: [name, version, message]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        message:
+          type: string
+    PackageItem:
+      type: object
+      properties:
+        name:
+          type: string
+        chain:
+          type: string
+        builder:
+          type: string
+        versions:
+          type: array
+          items:
+            type: string
+          description: List of package versions
+    PackageListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/PackageItem"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+    VersionsResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        chain:
+          type: string
+        builder:
+          type: string
+        versions:
+          type: array
+          items:
+            type: string
+    PackageResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        chain:
+          type: string
+        builder:
+          type: string
+        compilerVersion:
+          type: string
+        contracts:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+    ContractItem:
+      type: object
+      properties:
+        name:
+          type: string
+        sourcePath:
+          type: string
+        chain:
+          type: string
+    ContractsResponse:
+      type: object
+      required: [contracts]
+      properties:
+        contracts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContractItem"
+    ContractResponse:
+      type: object
+      properties:
+        name:
+          type: string
+        sourcePath:
+          type: string
+        chain:
+          type: string
+        license:
+          type: string
+    DeploymentSummary:
+      type: object
+      properties:
+        chainId:
+          type: string
+        address:
+          type: string
+        contractName:
+          type: string
+        verified:
+          type: boolean
+        txHash:
+          type: string
+    DeploymentsResponse:
+      type: object
+      required: [deployments]
+      properties:
+        deployments:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeploymentSummary"
+
+    # Verification
+    VerifyRequest:
+      type: object
+      required: [package, version, contract, chainId, address]
+      properties:
+        package:
+          type: string
+          example: my-contract
+        version:
+          type: string
+          example: "1.0.0"
+        contract:
+          type: string
+          example: MyContract
+        chainId:
+          type: integer
+          example: 1
+        address:
+          type: string
+          example: "0x1234567890123456789012345678901234567890"
+        rpcEndpoint:
+          type: string
+          description: Optional RPC endpoint override
+    VerifyResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          description: Whether verification succeeded
+        message:
+          type: string
+          description: Status message
+        chainId:
+          type: string
+          description: Chain ID (from request)
+        address:
+          type: string
+          description: Contract address (from request)

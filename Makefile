@@ -1,4 +1,4 @@
-.PHONY: dev dev-postgres build build-all cli server test test-v test-cover test-int test-e2e lint fmt migrate migrate-down migrate-new docker seed clean help
+.PHONY: dev dev-postgres build build-all cli server test test-v test-cover test-int test-e2e lint fmt migrate migrate-down migrate-new docker seed clean help openapi
 
 # Build variables
 BINARY_CLI=contrafactory
@@ -122,6 +122,9 @@ seed: build ## Seed the database with sample packages
 
 clean: ## Remove build artifacts
 	rm -rf bin/ tmp/ coverage.out coverage.html data/
+
+openapi: ## Validate OpenAPI specification
+	npx @redocly/cli lint spec/openapi.yaml --config redocly.yaml
 
 deps: ## Download and verify dependencies
 	go mod download

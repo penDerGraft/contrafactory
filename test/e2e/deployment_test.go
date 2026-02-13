@@ -43,6 +43,7 @@ func TestDeployment_RecordDeployment(t *testing.T) {
 		assert.Equal(t, "31337", deployment.ChainID)
 		assert.Equal(t, "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", deployment.Address)
 		assert.Equal(t, int64(12345), deployment.BlockNumber)
+		assert.NotNil(t, deployment.VerifiedOn, "VerifiedOn should be present (may be empty for unverified deployments)")
 	})
 }
 
