@@ -120,15 +120,15 @@ func TestClient_GetDeployment(t *testing.T) {
 		}
 
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":              "deploy-123",
-			"packageId":       "pkg-456",
-			"contractName":    "Token",
-			"chainId":         "31337",
-			"address":         "0x1234567890abcdef1234567890abcdef12345678",
-			"blockNumber":     12345,
-			"verified":        true,
-			"verifiedOn":      []string{"etherscan", "blockscout"},
-			"createdAt":       "2024-01-15T10:30:00Z",
+			"id":           "deploy-123",
+			"packageId":    "pkg-456",
+			"contractName": "Token",
+			"chainId":      "31337",
+			"address":      "0x1234567890abcdef1234567890abcdef12345678",
+			"blockNumber":  12345,
+			"verified":     true,
+			"verifiedOn":   []string{"etherscan", "blockscout"},
+			"createdAt":    "2024-01-15T10:30:00Z",
 		})
 	}))
 	defer server.Close()
