@@ -89,22 +89,38 @@ func (s *service) Publish(ctx context.Context, name, version string, ownerID str
 		return ErrVersionExists
 	}
 
-	// Extract compiler version from first artifact (if available)
+	// Extract compiler version and settings from first artifact (if available)
 	var compilerVersion string
+	var compilerSettings map[string]any
 	if len(req.Artifacts) > 0 && req.Artifacts[0].Compiler != nil {
-		compilerVersion = req.Artifacts[0].Compiler.Version
+		c := req.Artifacts[0].Compiler
+		compilerVersion = c.Version
+		optimizer := map[string]any{"enabled": false, "runs": 200}
+		if c.Optimizer != nil {
+			optimizer = map[string]any{
+				"enabled": c.Optimizer.Enabled,
+				"runs":    c.Optimizer.Runs,
+			}
+		}
+		compilerSettings = map[string]any{
+			"evmVersion": c.EVMVersion,
+			"viaIR":      c.ViaIR,
+			"optimizer":  optimizer,
+		}
 	}
 
 	// Create package
 	pkg := &storage.Package{
-		ID:              generateID(),
-		Name:            name,
-		Version:         version,
-		Chain:           req.Chain,
-		Builder:         req.Builder,
-		CompilerVersion: compilerVersion,
-		Metadata:        req.Metadata,
-		OwnerID:         ownerID,
+		ID:               generateID(),
+		Name:             name,
+		Version:          version,
+		Project:          req.Project,
+		Chain:            req.Chain,
+		Builder:          req.Builder,
+		CompilerVersion:  compilerVersion,
+		CompilerSettings: compilerSettings,
+		Metadata:         req.Metadata,
+		OwnerID:          ownerID,
 	}
 
 	if err := s.packages.CreatePackage(ctx, pkg); err != nil {
@@ -225,10 +241,14 @@ func (s *service) GetVersions(ctx context.Context, name string, includePrereleas
 // List lists packages with filtering and pagination.
 func (s *service) List(ctx context.Context, filter ListFilter, pagination PaginationParams) (*ListResult, error) {
 	result, err := s.packages.ListPackages(ctx, storage.PackageFilter{
-		Query: filter.Query,
-		Chain: filter.Chain,
-		Sort:  filter.Sort,
-		Order: filter.Order,
+		Query:    filter.Query,
+		Chain:    filter.Chain,
+		Sort:     filter.Sort,
+		Order:    filter.Order,
+		Project:  filter.Project,
+		Version:  filter.Version,
+		Contract: filter.Contract,
+		Latest:   filter.Latest,
 	}, storage.PaginationParams{
 		Limit:  pagination.Limit,
 		Cursor: pagination.Cursor,
@@ -239,7 +259,32 @@ func (s *service) List(ctx context.Context, filter ListFilter, pagination Pagina
 
 	packages := make([]Package, len(result.Data))
 	for i, p := range result.Data {
-		packages[i] = *toPackage(&p)
+		pkg := *toPackage(&p)
+		pkg.Contracts = p.Contracts
+		packages[i] = pkg
+	}
+
+	// When project or version filter is set, inline contracts for each package
+	if (filter.Project != "" || filter.Version != "" || filter.Contract != "") && len(packages) > 0 {
+		for i := range packages {
+			versionToUse := filter.Version
+			if versionToUse == "" && len(packages[i].Versions) > 0 {
+				versionToUse = packages[i].Versions[0]
+			}
+			if versionToUse != "" {
+				pkg, err := s.packages.GetPackage(ctx, packages[i].Name, versionToUse)
+				if err == nil {
+					contracts, err := s.contracts.ListContracts(ctx, pkg.ID)
+					if err == nil {
+						names := make([]string, len(contracts))
+						for j, c := range contracts {
+							names[j] = c.Name
+						}
+						packages[i].Contracts = names
+					}
+				}
+			}
+		}
 	}
 
 	return &ListResult{
@@ -317,14 +362,22 @@ func (s *service) GetContract(ctx context.Context, name, version, contractName s
 		return nil, fmt.Errorf("getting contract: %w", err)
 	}
 
+	compilationTarget := map[string]string{}
+	if contract.SourcePath != "" && contract.Name != "" {
+		compilationTarget[contract.SourcePath] = contract.Name
+	}
+
 	return &Contract{
-		ID:          contract.ID,
-		PackageID:   contract.PackageID,
-		Name:        contract.Name,
-		Chain:       contract.Chain,
-		SourcePath:  contract.SourcePath,
-		License:     contract.License,
-		PrimaryHash: contract.PrimaryHash,
+		ID:                contract.ID,
+		PackageID:         contract.PackageID,
+		Name:              contract.Name,
+		Chain:             contract.Chain,
+		SourcePath:        contract.SourcePath,
+		License:           contract.License,
+		PrimaryHash:       contract.PrimaryHash,
+		CompilationTarget: compilationTarget,
+		CompilerVersion:   pkg.CompilerVersion,
+		CompilerSettings:  pkg.CompilerSettings,
 	}, nil
 }
 
@@ -480,6 +533,7 @@ func toPackage(p *storage.Package) *Package {
 		ID:               p.ID,
 		Name:             p.Name,
 		Version:          p.Version,
+		Project:          p.Project,
 		Chain:            p.Chain,
 		Builder:          p.Builder,
 		CompilerVersion:  p.CompilerVersion,
@@ -488,5 +542,6 @@ func toPackage(p *storage.Package) *Package {
 		OwnerID:          p.OwnerID,
 		CreatedAt:        createdAt,
 		Versions:         p.Versions,
+		Contracts:        p.Contracts,
 	}
 }

@@ -23,6 +23,7 @@ import (
 type PublishRequest struct {
 	Chain     string            `json:"chain"`
 	Builder   string            `json:"builder"`
+	Project   string            `json:"project,omitempty"`
 	Artifacts []PublishArtifact `json:"artifacts"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 }
@@ -35,6 +36,21 @@ type PublishArtifact struct {
 	Bytecode          string          `json:"bytecode,omitempty"`
 	DeployedBytecode  string          `json:"deployedBytecode,omitempty"`
 	StandardJSONInput json.RawMessage `json:"standardJsonInput,omitempty"`
+	Compiler          *CompilerInfo   `json:"compiler,omitempty"`
+}
+
+// CompilerInfo is compiler metadata for verification
+type CompilerInfo struct {
+	Version    string         `json:"version"`
+	Optimizer  *OptimizerInfo `json:"optimizer,omitempty"`
+	EVMVersion string         `json:"evmVersion,omitempty"`
+	ViaIR      bool           `json:"viaIR,omitempty"`
+}
+
+// OptimizerInfo contains optimizer settings
+type OptimizerInfo struct {
+	Enabled bool `json:"enabled"`
+	Runs    int  `json:"runs"`
 }
 
 // Default exclude patterns
@@ -236,9 +252,24 @@ func runPublish(version, prefix string, contracts, exclude, includeDeps []string
 			DeployedBytecode: artifact.EVM.DeployedBytecode,
 		}
 
+		// Compiler info from artifact (prefer full version from build-info when available)
+		compilerVersion := artifact.EVM.Compiler.Version
+		if vi, err := builder.GetVerificationInput(cwd, artifact.Name); err == nil && vi.SolcLongVersion != "" {
+			compilerVersion = vi.SolcLongVersion
+		}
+		pa.Compiler = &CompilerInfo{
+			Version:    compilerVersion,
+			EVMVersion: artifact.EVM.Compiler.EVMVersion,
+			ViaIR:      artifact.EVM.Compiler.ViaIR,
+			Optimizer: &OptimizerInfo{
+				Enabled: artifact.EVM.Compiler.Optimizer.Enabled,
+				Runs:    artifact.EVM.Compiler.Optimizer.Runs,
+			},
+		}
+
 		// Try to get Standard JSON Input
-		if stdJSON, err := builder.GenerateVerificationInput(cwd, artifact.Name); err == nil {
-			pa.StandardJSONInput = stdJSON
+		if vi, err := builder.GetVerificationInput(cwd, artifact.Name); err == nil {
+			pa.StandardJSONInput = vi.StandardJSON
 		}
 
 		// Package name = normalized contract name (with optional prefix)
@@ -286,11 +317,15 @@ func runPublish(version, prefix string, contracts, exclude, includeDeps []string
 
 	// Publish each contract as its own package
 	serverURL := getServer()
+	project := ""
+	if projectConfig != nil {
+		project = projectConfig.Project
+	}
 	fmt.Printf("\nPublishing %d package(s) to %s...\n", len(packages), serverURL)
 
 	var successCount, failCount int
 	for _, pkg := range packages {
-		err := publishPackage(serverURL, pkg.name, version, pkg.artifact, metadata)
+		err := publishPackage(serverURL, pkg.name, version, project, pkg.artifact, metadata)
 		if err != nil {
 			fmt.Printf("   X %s@%s: %v\n", pkg.name, version, err)
 			failCount++
@@ -439,10 +474,11 @@ func normalizePackageName(name string) string {
 }
 
 // publishPackage publishes a single contract as its own package
-func publishPackage(serverURL, packageName, version string, artifact PublishArtifact, metadata map[string]string) error {
+func publishPackage(serverURL, packageName, version, project string, artifact PublishArtifact, metadata map[string]string) error {
 	req := PublishRequest{
 		Chain:     "evm",
 		Builder:   "foundry",
+		Project:   project,
 		Artifacts: []PublishArtifact{artifact},
 		Metadata:  metadata,
 	}

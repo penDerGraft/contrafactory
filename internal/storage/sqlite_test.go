@@ -35,11 +35,14 @@ func TestSQLiteStore(t *testing.T) {
 
 	t.Run("CreateAndGetPackage", func(t *testing.T) {
 		pkg := &Package{
-			ID:      "test-id-1",
-			Name:    "test-package",
-			Version: "1.0.0",
-			Chain:   "evm",
-			Builder: "foundry",
+			ID:               "test-id-1",
+			Name:             "test-package",
+			Version:          "1.0.0",
+			Project:          "my-project",
+			Chain:            "evm",
+			Builder:          "foundry",
+			CompilerVersion:  "0.8.28+commit.7893614a",
+			CompilerSettings: map[string]any{"evmVersion": "paris", "viaIR": false, "optimizer": map[string]any{"enabled": true, "runs": 200}},
 		}
 
 		if err := store.CreatePackage(ctx, pkg); err != nil {
@@ -56,6 +59,20 @@ func TestSQLiteStore(t *testing.T) {
 		}
 		if got.Version != pkg.Version {
 			t.Errorf("GetPackage().Version = %v, want %v", got.Version, pkg.Version)
+		}
+		if got.Project != pkg.Project {
+			t.Errorf("GetPackage().Project = %v, want %v", got.Project, pkg.Project)
+		}
+		if got.CompilerVersion != pkg.CompilerVersion {
+			t.Errorf("GetPackage().CompilerVersion = %v, want %v", got.CompilerVersion, pkg.CompilerVersion)
+		}
+		if evm, ok := got.CompilerSettings["evmVersion"].(string); !ok || evm != "paris" {
+			t.Errorf("GetPackage().CompilerSettings[evmVersion] = %v, want paris", got.CompilerSettings["evmVersion"])
+		}
+		if opt, ok := got.CompilerSettings["optimizer"].(map[string]any); ok {
+			if runs, ok := opt["runs"].(float64); ok && int(runs) != 200 {
+				t.Errorf("GetPackage().CompilerSettings[optimizer].runs = %v, want 200", runs)
+			}
 		}
 	})
 
@@ -204,6 +221,138 @@ func TestSQLiteStore(t *testing.T) {
 			t.Error("Package still exists after deletion")
 		}
 	})
+}
+
+func TestListPackagesFilters(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "contrafactory-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	store, err := NewSQLiteStore(dbPath, logger)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+
+	// Create packages: pkg-a and pkg-b in project "proj1", pkg-c in project "proj2"
+	// pkg-a has versions 1.0.0, 1.1.0, 2.0.0; pkg-b has 1.0.0; pkg-c has 1.0.0
+	for _, p := range []struct {
+		id, name, version, project string
+	}{
+		{"id-a1", "pkg-a", "1.0.0", "proj1"},
+		{"id-a2", "pkg-a", "1.1.0", "proj1"},
+		{"id-a3", "pkg-a", "2.0.0", "proj1"},
+		{"id-b1", "pkg-b", "1.0.0", "proj1"},
+		{"id-c1", "pkg-c", "1.0.0", "proj2"},
+	} {
+		pkg := &Package{ID: p.id, Name: p.name, Version: p.version, Project: p.project, Chain: "evm", Builder: "foundry"}
+		if err := store.CreatePackage(ctx, pkg); err != nil {
+			t.Fatalf("CreatePackage %s@%s: %v", p.name, p.version, err)
+		}
+	}
+
+	// Create contracts: Token in pkg-a, Registry in pkg-b
+	if err := store.CreateContract(ctx, "id-a1", &Contract{ID: "c1", PackageID: "id-a1", Name: "Token", Chain: "evm", SourcePath: "src/Token.sol", PrimaryHash: "h1"}); err != nil {
+		t.Fatalf("CreateContract: %v", err)
+	}
+	if err := store.CreateContract(ctx, "id-b1", &Contract{ID: "c2", PackageID: "id-b1", Name: "Registry", Chain: "evm", SourcePath: "src/Registry.sol", PrimaryHash: "h2"}); err != nil {
+		t.Fatalf("CreateContract: %v", err)
+	}
+	// pkg-a@1.1.0 also has Token (different package_id)
+	if err := store.CreateContract(ctx, "id-a2", &Contract{ID: "c3", PackageID: "id-a2", Name: "Token", Chain: "evm", SourcePath: "src/Token.sol", PrimaryHash: "h3"}); err != nil {
+		t.Fatalf("CreateContract: %v", err)
+	}
+
+	t.Run("project filter", func(t *testing.T) {
+		result, err := store.ListPackages(ctx, PackageFilter{Project: "proj1"}, PaginationParams{Limit: 10})
+		if err != nil {
+			t.Fatalf("ListPackages() error = %v", err)
+		}
+		names := make([]string, len(result.Data))
+		for i, p := range result.Data {
+			names[i] = p.Name
+		}
+		if len(result.Data) != 2 {
+			t.Errorf("ListPackages(project=proj1) returned %d packages, want 2 (pkg-a, pkg-b)", len(result.Data))
+		}
+		if !contains(names, "pkg-a") || !contains(names, "pkg-b") {
+			t.Errorf("ListPackages(project=proj1) = %v, want pkg-a and pkg-b", names)
+		}
+	})
+
+	t.Run("version filter", func(t *testing.T) {
+		result, err := store.ListPackages(ctx, PackageFilter{Version: "1.0.0"}, PaginationParams{Limit: 10})
+		if err != nil {
+			t.Fatalf("ListPackages() error = %v", err)
+		}
+		names := make([]string, len(result.Data))
+		for i, p := range result.Data {
+			names[i] = p.Name
+		}
+		if len(result.Data) != 3 {
+			t.Errorf("ListPackages(version=1.0.0) returned %d packages, want 3 (pkg-a, pkg-b, pkg-c)", len(result.Data))
+		}
+		if !contains(names, "pkg-a") || !contains(names, "pkg-b") || !contains(names, "pkg-c") {
+			t.Errorf("ListPackages(version=1.0.0) = %v", names)
+		}
+	})
+
+	t.Run("contract filter", func(t *testing.T) {
+		result, err := store.ListPackages(ctx, PackageFilter{Contract: "Token"}, PaginationParams{Limit: 10})
+		if err != nil {
+			t.Fatalf("ListPackages() error = %v", err)
+		}
+		if len(result.Data) != 1 {
+			t.Errorf("ListPackages(contract=Token) returned %d packages, want 1", len(result.Data))
+		}
+		if len(result.Data) > 0 && result.Data[0].Name != "pkg-a" {
+			t.Errorf("ListPackages(contract=Token) = %v, want pkg-a", result.Data[0].Name)
+		}
+	})
+
+	t.Run("contract filter case insensitive", func(t *testing.T) {
+		result, err := store.ListPackages(ctx, PackageFilter{Contract: "registry"}, PaginationParams{Limit: 10})
+		if err != nil {
+			t.Fatalf("ListPackages() error = %v", err)
+		}
+		if len(result.Data) != 1 || result.Data[0].Name != "pkg-b" {
+			t.Errorf("ListPackages(contract=registry) = %v, want pkg-b", result.Data)
+		}
+	})
+
+	t.Run("project and latest", func(t *testing.T) {
+		result, err := store.ListPackages(ctx, PackageFilter{Project: "proj1", Latest: true}, PaginationParams{Limit: 10})
+		if err != nil {
+			t.Fatalf("ListPackages() error = %v", err)
+		}
+		for _, p := range result.Data {
+			if p.Name == "pkg-a" && len(p.Versions) != 1 {
+				t.Errorf("pkg-a with latest should have 1 version, got %v", p.Versions)
+			}
+			if p.Name == "pkg-a" && len(p.Versions) == 1 && p.Versions[0] != "2.0.0" {
+				t.Errorf("pkg-a latest version = %v, want 2.0.0", p.Versions[0])
+			}
+		}
+	})
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAPIKey(t *testing.T) {

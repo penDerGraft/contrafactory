@@ -66,6 +66,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
 		version TEXT NOT NULL,
+		project TEXT,
 		chain TEXT NOT NULL,
 		builder TEXT,
 		compiler_version TEXT,
@@ -152,6 +153,14 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 
+	// Add project column if it doesn't exist (SQLite doesn't support IF NOT EXISTS for ADD COLUMN)
+	// Ignore error if column already exists (duplicate column name)
+	if _, err := s.db.ExecContext(ctx, "ALTER TABLE packages ADD COLUMN project TEXT"); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column name") {
+			s.logger.Warn("adding project column (may already exist)", "error", err)
+		}
+	}
+
 	s.logger.Info("database migrations complete")
 	return nil
 }
@@ -170,32 +179,54 @@ func (s *SQLiteStore) CreatePackage(ctx context.Context, pkg *Package) error {
 		metadataJSON = "{}"
 	}
 
+	// Serialize compiler settings as JSON
+	compilerSettingsJSON := "{}"
+	if len(pkg.CompilerSettings) > 0 {
+		data, err := json.Marshal(pkg.CompilerSettings)
+		if err != nil {
+			return fmt.Errorf("serializing compiler settings: %w", err)
+		}
+		compilerSettingsJSON = string(data)
+	}
+
 	query := `
-		INSERT INTO packages (id, name, version, chain, builder, compiler_version, compiler_settings, metadata, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		INSERT INTO packages (id, name, version, project, chain, builder, compiler_version, compiler_settings, metadata, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 	`
-	_, err := s.db.ExecContext(ctx, query, pkg.ID, pkg.Name, pkg.Version, pkg.Chain, pkg.Builder, pkg.CompilerVersion, "{}", metadataJSON)
+	_, err := s.db.ExecContext(ctx, query, pkg.ID, pkg.Name, pkg.Version, nullIfEmpty(pkg.Project), pkg.Chain, pkg.Builder, pkg.CompilerVersion, compilerSettingsJSON, metadataJSON)
 	return err
 }
 
 // GetPackage retrieves a package by name and version
 func (s *SQLiteStore) GetPackage(ctx context.Context, name, version string) (*Package, error) {
 	query := `
-		SELECT id, name, version, chain, builder, compiler_version, compiler_settings, metadata, created_at
+		SELECT id, name, version, project, chain, builder, compiler_version, compiler_settings, metadata, created_at
 		FROM packages
 		WHERE name = ? AND version = ?
 	`
 	var pkg Package
+	var project sql.NullString
 	var settings string
 	var metadata sql.NullString
 	err := s.db.QueryRowContext(ctx, query, name, version).Scan(
-		&pkg.ID, &pkg.Name, &pkg.Version, &pkg.Chain, &pkg.Builder, &pkg.CompilerVersion, &settings, &metadata, &pkg.CreatedAt,
+		&pkg.ID, &pkg.Name, &pkg.Version, &project, &pkg.Chain, &pkg.Builder, &pkg.CompilerVersion, &settings, &metadata, &pkg.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if project.Valid {
+		pkg.Project = project.String
+	}
+
+	// Deserialize compiler settings if present
+	if settings != "" && settings != "{}" {
+		if err := json.Unmarshal([]byte(settings), &pkg.CompilerSettings); err != nil {
+			s.logger.Warn("failed to deserialize compiler settings", "error", err)
+		}
 	}
 
 	// Deserialize metadata if present
@@ -231,46 +262,37 @@ func (s *SQLiteStore) GetPackageVersions(ctx context.Context, name string, inclu
 
 // ListPackages lists packages with filtering and cursor-based pagination
 func (s *SQLiteStore) ListPackages(ctx context.Context, filter PackageFilter, pagination PaginationParams) (*PaginatedResult[Package], error) {
-	var query string
+	var whereClauses []string
 	var args []any
-
-	// Build query with optional filtering and cursor-based pagination
-	// We need to aggregate versions and get chain/builder from the most recent version
-	baseQuery := `
-		SELECT 
-			name, 
-			chain, 
-			builder,
-			GROUP_CONCAT(version, ',') as versions
-		FROM packages
-	`
-	groupBy := ` GROUP BY name ORDER BY name`
-
-	if pagination.Cursor != "" {
-		if filter.Query != "" {
-			query = baseQuery + ` WHERE name > ? AND name LIKE ?` + groupBy + ` LIMIT ?`
-			args = []any{pagination.Cursor, "%" + filter.Query + "%", pagination.Limit + 1}
-		} else if filter.Chain != "" {
-			query = baseQuery + ` WHERE name > ? AND chain = ?` + groupBy + ` LIMIT ?`
-			args = []any{pagination.Cursor, filter.Chain, pagination.Limit + 1}
-		} else {
-			query = baseQuery + ` WHERE name > ?` + groupBy + ` LIMIT ?`
-			args = []any{pagination.Cursor, pagination.Limit + 1}
-		}
-	} else {
-		if filter.Query != "" {
-			query = baseQuery + ` WHERE name LIKE ?` + groupBy + ` LIMIT ?`
-			args = []any{"%" + filter.Query + "%", pagination.Limit + 1}
-		} else if filter.Chain != "" {
-			query = baseQuery + ` WHERE chain = ?` + groupBy + ` LIMIT ?`
-			args = []any{filter.Chain, pagination.Limit + 1}
-		} else {
-			query = baseQuery + groupBy + ` LIMIT ?`
-			args = []any{pagination.Limit + 1}
-		}
+	argIdx := 0
+	addArg := func(v any) {
+		argIdx++
+		args = append(args, v)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	tablePrefix := ""
+	baseQuery := `
+		SELECT name, chain, builder, GROUP_CONCAT(version, ',') as versions
+		FROM packages
+	`
+	if filter.Contract != "" {
+		tablePrefix = "p."
+		baseQuery = `
+		SELECT p.name, p.chain, p.builder, GROUP_CONCAT(p.version, ',') as versions
+		FROM packages p
+		INNER JOIN contracts c ON c.package_id = p.id AND LOWER(c.name) = LOWER(?)
+		`
+		addArg(filter.Contract)
+	}
+
+	whereClauses = buildListPackagesWhereClauses(&args, &argIdx, filter, pagination, tablePrefix)
+	if len(whereClauses) > 0 {
+		baseQuery += " WHERE " + strings.Join(whereClauses, " AND ")
+	}
+	baseQuery += " GROUP BY " + tablePrefix + "name, " + tablePrefix + "chain, " + tablePrefix + "builder ORDER BY " + tablePrefix + "name LIMIT ?"
+	addArg(pagination.Limit + 1)
+
+	rows, err := s.db.QueryContext(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -285,6 +307,11 @@ func (s *SQLiteStore) ListPackages(ctx context.Context, filter PackageFilter, pa
 		var versionList []string
 		if versions != "" {
 			versionList = strings.Split(versions, ",")
+		}
+		// Apply latest filter: keep only the latest version by semver
+		if filter.Latest && filter.Project != "" && len(versionList) > 1 {
+			latest := latestVersionBySemver(versionList)
+			versionList = []string{latest}
 		}
 		packages = append(packages, Package{
 			Name:     name,
@@ -308,6 +335,37 @@ func (s *SQLiteStore) ListPackages(ctx context.Context, filter PackageFilter, pa
 		HasMore:    hasMore,
 		NextCursor: nextCursor,
 	}, rows.Err()
+}
+
+// buildListPackagesWhereClauses builds WHERE clauses for ListPackages (SQLite uses ? placeholders)
+func buildListPackagesWhereClauses(args *[]any, argIdx *int, filter PackageFilter, pagination PaginationParams, tablePrefix string) []string {
+	var whereClauses []string
+	addArg := func(v any) {
+		*argIdx++
+		*args = append(*args, v)
+	}
+
+	if pagination.Cursor != "" {
+		whereClauses = append(whereClauses, tablePrefix+"name > ?")
+		addArg(pagination.Cursor)
+	}
+	if filter.Query != "" {
+		whereClauses = append(whereClauses, tablePrefix+"name LIKE ?")
+		addArg("%" + filter.Query + "%")
+	}
+	if filter.Chain != "" {
+		whereClauses = append(whereClauses, tablePrefix+"chain = ?")
+		addArg(filter.Chain)
+	}
+	if filter.Project != "" {
+		whereClauses = append(whereClauses, tablePrefix+"project = ?")
+		addArg(filter.Project)
+	}
+	if filter.Version != "" {
+		whereClauses = append(whereClauses, tablePrefix+"version = ?")
+		addArg(filter.Version)
+	}
+	return whereClauses
 }
 
 // DeletePackage deletes a package

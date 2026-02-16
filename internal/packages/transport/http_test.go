@@ -252,6 +252,79 @@ func TestHandler_Delete(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
+func TestHandler_List_LatestWithoutProject_Returns400(t *testing.T) {
+	svc := newMockService()
+	svc.packages["test-pkg@1.0.0"] = &domain.Package{Name: "test-pkg", Version: "1.0.0", Chain: "evm"}
+
+	router := setupRouter(svc)
+
+	req := httptest.NewRequest("GET", "/packages/?latest=true", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "error")
+	errDetail, ok := resp["error"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "INVALID_REQUEST", errDetail["code"])
+	assert.Contains(t, errDetail["message"], "latest")
+}
+
+func TestHandler_GetContract_IncludesCompilationTargetAndCompiler(t *testing.T) {
+	svc := newMockService()
+	svc.packages["test-pkg@1.0.0"] = &domain.Package{Name: "test-pkg", Version: "1.0.0", Chain: "evm"}
+	svc.contracts["test-pkg@1.0.0"] = []domain.Contract{
+		{
+			Name:              "Token",
+			SourcePath:        "src/Token.sol",
+			Chain:             "evm",
+			CompilationTarget: map[string]string{"src/Token.sol": "Token"},
+			CompilerVersion:   "0.8.28",
+			CompilerSettings: map[string]any{
+				"evmVersion": "paris",
+				"viaIR":      false,
+				"optimizer":  map[string]any{"enabled": true, "runs": 200},
+			},
+		},
+	}
+
+	router := setupRouter(svc)
+
+	req := httptest.NewRequest("GET", "/packages/test-pkg/1.0.0/contracts/Token", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "Token", resp["name"])
+	assert.Equal(t, "src/Token.sol", resp["sourcePath"])
+
+	compTarget, ok := resp["compilationTarget"].(map[string]any)
+	require.True(t, ok, "compilationTarget should be present")
+	assert.Equal(t, "Token", compTarget["src/Token.sol"])
+
+	compiler, ok := resp["compiler"].(map[string]any)
+	require.True(t, ok, "compiler should be present")
+	assert.Equal(t, "0.8.28", compiler["version"])
+	assert.Equal(t, "paris", compiler["evmVersion"])
+	if v, ok := compiler["viaIR"].(bool); ok {
+		assert.False(t, v)
+	}
+	opt, ok := compiler["optimizer"].(map[string]any)
+	require.True(t, ok)
+	assert.True(t, opt["enabled"].(bool))
+	assert.Equal(t, float64(200), opt["runs"])
+}
+
 func TestHandler_GetArtifact(t *testing.T) {
 	svc := newMockService()
 	svc.packages["test-pkg@1.0.0"] = &domain.Package{Name: "test-pkg", Version: "1.0.0"}

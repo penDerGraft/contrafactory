@@ -11,6 +11,7 @@ import (
 type PublishRequest struct {
 	Chain     string            `json:"chain"`
 	Builder   string            `json:"builder,omitempty"`
+	Project   string            `json:"project,omitempty"`
 	Artifacts []ArtifactRequest `json:"artifacts"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 }
@@ -51,6 +52,7 @@ func (r PublishRequest) ToDomain() domain.PublishRequest {
 	return domain.PublishRequest{
 		Chain:     r.Chain,
 		Builder:   r.Builder,
+		Project:   r.Project,
 		Artifacts: artifacts,
 		Metadata:  r.Metadata,
 	}
@@ -99,10 +101,11 @@ type ListResponse struct {
 
 // PackageItem is a package summary in a list.
 type PackageItem struct {
-	Name     string   `json:"name"`
-	Chain    string   `json:"chain"`
-	Builder  string   `json:"builder"`
-	Versions []string `json:"versions"`
+	Name      string   `json:"name"`
+	Chain     string   `json:"chain"`
+	Builder   string   `json:"builder"`
+	Versions  []string `json:"versions"`
+	Contracts []string `json:"contracts,omitempty"`
 }
 
 // Pagination provides pagination metadata.
@@ -153,10 +156,26 @@ type ContractItem struct {
 
 // ContractResponse is the response for getting a contract.
 type ContractResponse struct {
-	Name       string `json:"name"`
-	SourcePath string `json:"sourcePath"`
-	Chain      string `json:"chain"`
-	License    string `json:"license"`
+	Name              string            `json:"name"`
+	SourcePath        string            `json:"sourcePath"`
+	Chain             string            `json:"chain"`
+	License           string            `json:"license"`
+	CompilationTarget map[string]string `json:"compilationTarget,omitempty"`
+	Compiler          *CompilerInfoResp `json:"compiler,omitempty"`
+}
+
+// CompilerInfoResp is compiler info in a contract response.
+type CompilerInfoResp struct {
+	Version    string             `json:"version"`
+	EVMVersion string             `json:"evmVersion,omitempty"`
+	Optimizer  *OptimizerInfoResp `json:"optimizer,omitempty"`
+	ViaIR      bool               `json:"viaIR,omitempty"`
+}
+
+// OptimizerInfoResp is optimizer settings in a contract response.
+type OptimizerInfoResp struct {
+	Enabled bool `json:"enabled"`
+	Runs    int  `json:"runs"`
 }
 
 // DeploymentsResponse is the response for getting package deployments.

@@ -201,3 +201,56 @@ func extractContractName(path string) string {
 	base := filepath.Base(path)
 	return base[:len(base)-5] // remove .json
 }
+
+func TestBuilder_GetVerificationInput_ReturnsSolcLongVersion(t *testing.T) {
+	b := New()
+
+	dir := t.TempDir()
+	buildInfoDir := filepath.Join(dir, "out", "build-info")
+	require.NoError(t, os.MkdirAll(buildInfoDir, 0755))
+
+	buildInfo := map[string]any{
+		"id":              "abc123",
+		"solcVersion":     "0.8.28",
+		"solcLongVersion": "0.8.28+commit.7893614a",
+		"input":           map[string]any{"language": "Solidity", "sources": map[string]any{}},
+		"output":          map[string]any{},
+	}
+	data, err := json.Marshal(buildInfo)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(buildInfoDir, "abc123.json"), data, 0644))
+
+	vi, err := b.GetVerificationInput(dir, "Token")
+	require.NoError(t, err)
+	assert.Equal(t, "0.8.28+commit.7893614a", vi.SolcLongVersion)
+	assert.NotEmpty(t, vi.StandardJSON)
+	assert.Contains(t, string(vi.StandardJSON), "Solidity")
+}
+
+func TestBuilder_GenerateVerificationInput_DelegatesToGetVerificationInput(t *testing.T) {
+	b := New()
+
+	dir := t.TempDir()
+	buildInfoDir := filepath.Join(dir, "out", "build-info")
+	require.NoError(t, os.MkdirAll(buildInfoDir, 0755))
+
+	stdInput := map[string]any{"language": "Solidity", "sources": map[string]any{"Token.sol": map[string]any{"content": "contract Token {}"}}}
+	buildInfo := map[string]any{
+		"id":              "xyz789",
+		"solcVersion":     "0.8.20",
+		"solcLongVersion": "0.8.20+commit.a1b2c3d4",
+		"input":           stdInput,
+		"output":          map[string]any{},
+	}
+	data, err := json.Marshal(buildInfo)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(buildInfoDir, "xyz789.json"), data, 0644))
+
+	genOut, err := b.GenerateVerificationInput(dir, "Token")
+	require.NoError(t, err)
+
+	vi, err := b.GetVerificationInput(dir, "Token")
+	require.NoError(t, err)
+
+	assert.Equal(t, vi.StandardJSON, genOut)
+}

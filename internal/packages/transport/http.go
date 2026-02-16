@@ -103,11 +103,26 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	project := r.URL.Query().Get("project")
+	version := r.URL.Query().Get("version")
+	contract := r.URL.Query().Get("contract")
+	latest := r.URL.Query().Get("latest") == "true"
+
+	// latest requires project
+	if latest && project == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "latest parameter requires project parameter")
+		return
+	}
+
 	result, err := h.svc.List(r.Context(), domain.ListFilter{
-		Query: r.URL.Query().Get("q"),
-		Chain: r.URL.Query().Get("chain"),
-		Sort:  r.URL.Query().Get("sort"),
-		Order: r.URL.Query().Get("order"),
+		Query:    r.URL.Query().Get("q"),
+		Chain:    r.URL.Query().Get("chain"),
+		Sort:     r.URL.Query().Get("sort"),
+		Order:    r.URL.Query().Get("order"),
+		Project:  project,
+		Version:  version,
+		Contract: contract,
+		Latest:   latest,
 	}, domain.PaginationParams{
 		Limit:  limit,
 		Cursor: r.URL.Query().Get("cursor"),
@@ -119,12 +134,16 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 
 	data := make([]PackageItem, len(result.Packages))
 	for i, p := range result.Packages {
-		data[i] = PackageItem{
+		item := PackageItem{
 			Name:     p.Name,
 			Chain:    p.Chain,
 			Builder:  p.Builder,
 			Versions: p.Versions,
 		}
+		if len(p.Contracts) > 0 {
+			item.Contracts = p.Contracts
+		}
+		data[i] = item
 	}
 
 	writeJSON(w, http.StatusOK, ListResponse{
@@ -359,12 +378,30 @@ func (h *Handler) handleGetContract(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, ContractResponse{
+	resp := ContractResponse{
 		Name:       contract.Name,
 		SourcePath: contract.SourcePath,
 		Chain:      contract.Chain,
 		License:    contract.License,
-	})
+	}
+	if len(contract.CompilationTarget) > 0 {
+		resp.CompilationTarget = contract.CompilationTarget
+	}
+	if contract.CompilerVersion != "" || len(contract.CompilerSettings) > 0 {
+		resp.Compiler = &CompilerInfoResp{
+			Version:    contract.CompilerVersion,
+			EVMVersion: getStringFromMap(contract.CompilerSettings, "evmVersion"),
+			ViaIR:      getBoolFromMap(contract.CompilerSettings, "viaIR"),
+		}
+		if opt, ok := contract.CompilerSettings["optimizer"].(map[string]any); ok {
+			resp.Compiler.Optimizer = &OptimizerInfoResp{
+				Enabled: getBoolFromMap(opt, "enabled"),
+				Runs:    getIntFromMap(opt, "runs"),
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) handleGetABI(w http.ResponseWriter, r *http.Request) {
@@ -418,6 +455,30 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+func getStringFromMap(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func getBoolFromMap(m map[string]any, key string) bool {
+	if v, ok := m[key].(bool); ok {
+		return v
+	}
+	return false
+}
+
+func getIntFromMap(m map[string]any, key string) int {
+	switch v := m[key].(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	}
+	return 0
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {

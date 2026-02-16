@@ -11,6 +11,7 @@ type Package struct {
 	ID               string
 	Name             string
 	Version          string
+	Project          string
 	Chain            string
 	Builder          string
 	CompilerVersion  string
@@ -19,19 +20,23 @@ type Package struct {
 	OwnerID          string
 	CreatedAt        time.Time
 	Versions         []string // Used for list aggregation
+	Contracts        []string // Used when inlining contracts in list response
 }
 
 // Contract represents a contract within a package.
 type Contract struct {
-	ID           string
-	PackageID    string
-	Name         string
-	Chain        string
-	SourcePath   string
-	License      string
-	PrimaryHash  string
-	MetadataHash string
-	CreatedAt    time.Time
+	ID                string
+	PackageID         string
+	Name              string
+	Chain             string
+	SourcePath        string
+	License           string
+	PrimaryHash       string
+	MetadataHash      string
+	CreatedAt         time.Time
+	CompilationTarget map[string]string // For verification: {sourcePath: contractName}
+	CompilerVersion   string
+	CompilerSettings  map[string]any
 }
 
 // Artifact wraps chain-specific artifact data for publishing.
@@ -67,16 +72,21 @@ type OptimizerInfo struct {
 type PublishRequest struct {
 	Chain     string            `json:"chain"`
 	Builder   string            `json:"builder,omitempty"`
+	Project   string            `json:"project,omitempty"`
 	Artifacts []Artifact        `json:"artifacts"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
 // ListFilter contains filter options for listing packages.
 type ListFilter struct {
-	Query string
-	Chain string
-	Sort  string
-	Order string
+	Query    string
+	Chain    string
+	Sort     string
+	Order    string
+	Project  string
+	Version  string
+	Contract string
+	Latest   bool
 }
 
 // PaginationParams contains pagination options.

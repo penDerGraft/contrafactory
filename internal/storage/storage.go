@@ -64,6 +64,7 @@ type Package struct {
 	ID               string
 	Name             string
 	Version          string
+	Project          string
 	Chain            string
 	Builder          string
 	CompilerVersion  string
@@ -72,6 +73,7 @@ type Package struct {
 	OwnerID          string // API key ID that first published this package
 	CreatedAt        string
 	Versions         []string // Used for list aggregation (not stored directly)
+	Contracts        []string // Used when inlining contracts in list response (not stored directly)
 }
 
 // Contract represents a contract within a package
@@ -127,10 +129,14 @@ type APIKey struct {
 
 // PackageFilter contains filter options for listing packages
 type PackageFilter struct {
-	Query string
-	Chain string
-	Sort  string
-	Order string
+	Query    string
+	Chain    string
+	Sort     string
+	Order    string
+	Project  string
+	Version  string
+	Contract string
+	Latest   bool
 }
 
 // DeploymentFilter contains filter options for listing deployments

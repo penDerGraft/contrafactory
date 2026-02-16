@@ -23,6 +23,12 @@ type Chain interface {
 	GetDeployedBytecode(ctx context.Context, rpc string, address string) ([]byte, error)
 }
 
+// VerificationInput contains standard JSON input and full solc version for verification.
+type VerificationInput struct {
+	StandardJSON    []byte // Solidity standard JSON input
+	SolcLongVersion string // Full version with commit hash, e.g. "0.8.28+commit.7893614a"
+}
+
 // Builder parses artifacts from a specific build tool
 type Builder interface {
 	// Metadata
@@ -38,6 +44,8 @@ type Builder interface {
 	Discover(dir string, opts DiscoverOptions) ([]string, error)
 	Parse(artifactPath string) (*Artifact, error)
 	GenerateVerificationInput(dir string, contractName string) ([]byte, error)
+	// GetVerificationInput returns standard JSON input and full solc version (optional, for verification)
+	GetVerificationInput(dir string, contractName string) (*VerificationInput, error)
 
 	// Dependency discovery
 	DiscoverDependencies(dir string) ([]DependencyInfo, error)

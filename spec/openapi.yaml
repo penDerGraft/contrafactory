@@ -214,6 +214,27 @@ paths:
           description: Pagination cursor
           schema:
             type: string
+        - name: project
+          in: query
+          description: Filter by project name (groups packages published together)
+          schema:
+            type: string
+        - name: version
+          in: query
+          description: Filter to packages that have this version
+          schema:
+            type: string
+        - name: contract
+          in: query
+          description: Search by contract name (returns packages containing this contract)
+          schema:
+            type: string
+        - name: latest
+          in: query
+          description: Return only latest version per package (requires project parameter)
+          schema:
+            type: string
+            enum: ["true", "false"]
       responses:
         "200":
           description: OK
@@ -222,7 +243,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PackageListResponse"
         "400":
-          description: Bad Request
+          description: Bad Request (e.g. latest without project)
           content:
             application/json:
               schema:
@@ -891,6 +912,9 @@ components:
         builder:
           type: string
           description: Build tool used (e.g. foundry, hardhat)
+        project:
+          type: string
+          description: Project name for grouping packages (from contrafactory.toml)
         artifacts:
           type: array
           items:
@@ -969,6 +993,11 @@ components:
           items:
             type: string
           description: List of package versions
+        contracts:
+          type: array
+          items:
+            type: string
+          description: Contract names (when filtering by project/version/contract)
     PackageListResponse:
       type: object
       required: [data, pagination]
@@ -1043,6 +1072,25 @@ components:
           type: string
         license:
           type: string
+        compilationTarget:
+          type: object
+          additionalProperties:
+            type: string
+          description: For verification, e.g. {"src/Contract.sol":"Contract"}
+        compiler:
+          $ref: "#/components/schemas/ContractCompilerInfo"
+    ContractCompilerInfo:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Full solc version (e.g. 0.8.28+commit.7893614a)
+        evmVersion:
+          type: string
+        optimizer:
+          $ref: "#/components/schemas/OptimizerInfoRequest"
+        viaIR:
+          type: boolean
     DeploymentSummary:
       type: object
       properties:

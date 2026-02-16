@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 
 	"github.com/google/uuid"
+	"golang.org/x/mod/semver"
 )
 
 // generateID generates a new UUID
@@ -31,4 +33,36 @@ func generateAPIKey() string {
 func hashAPIKey(key string) string {
 	h := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(h[:])
+}
+
+// nullIfEmpty returns nil for empty string (for NULL in DB), otherwise the string
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// latestVersionBySemver returns the latest version from a list using semver sorting
+func latestVersionBySemver(versions []string) string {
+	if len(versions) == 0 {
+		return ""
+	}
+	// Ensure v prefix for semver comparison
+	withV := make([]string, len(versions))
+	for i, v := range versions {
+		if v != "" && v[0] != 'v' {
+			withV[i] = "v" + v
+		} else {
+			withV[i] = v
+		}
+	}
+	sort.Slice(withV, func(i, j int) bool {
+		return semver.Compare(withV[i], withV[j]) > 0
+	})
+	latest := withV[0]
+	if latest != "" && latest[0] == 'v' {
+		return latest[1:]
+	}
+	return latest
 }

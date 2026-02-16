@@ -60,11 +60,13 @@ type Package struct {
 
 // Contract represents a contract in a package
 type Contract struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Chain      string `json:"chain"`
-	SourcePath string `json:"sourcePath"`
-	License    string `json:"license,omitempty"`
+	ID                string            `json:"id"`
+	Name              string            `json:"name"`
+	Chain             string            `json:"chain"`
+	SourcePath        string            `json:"sourcePath"`
+	License           string            `json:"license,omitempty"`
+	CompilationTarget map[string]string `json:"compilationTarget,omitempty"`
+	Compiler          *CompilerInfo     `json:"compiler,omitempty"`
 }
 
 // VersionDeployment represents a deployment for a package version
@@ -96,6 +98,7 @@ type Deployment struct {
 type PublishRequest struct {
 	Chain     string     `json:"chain"`
 	Builder   string     `json:"builder,omitempty"`
+	Project   string     `json:"project,omitempty"`
 	Artifacts []Artifact `json:"artifacts"`
 }
 

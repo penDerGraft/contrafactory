@@ -326,6 +326,11 @@ func getBuildInfo(t *testing.T, builtDir string) FoundryBuildInfo {
 
 // publishFromBuiltArtifacts publishes a package from built Foundry artifacts
 func publishFromBuiltArtifacts(t *testing.T, c *client.Client, builtDir, packageName, version string, contracts ...string) {
+	publishFromBuiltArtifactsWithProject(t, c, builtDir, packageName, version, "", contracts...)
+}
+
+// publishFromBuiltArtifactsWithProject publishes a package from built Foundry artifacts with an optional project
+func publishFromBuiltArtifactsWithProject(t *testing.T, c *client.Client, builtDir, packageName, version, project string, contracts ...string) {
 	artifacts := make([]client.Artifact, 0, len(contracts))
 
 	for _, contractName := range contracts {
@@ -390,6 +395,7 @@ func publishFromBuiltArtifacts(t *testing.T, c *client.Client, builtDir, package
 	req := client.PublishRequest{
 		Chain:     "evm",
 		Builder:   "foundry",
+		Project:   project,
 		Artifacts: artifacts,
 	}
 

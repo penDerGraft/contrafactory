@@ -53,6 +53,7 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 		name TEXT NOT NULL,
 		version TEXT NOT NULL,
+		project TEXT,
 		chain TEXT NOT NULL,
 		builder TEXT,
 		compiler_version TEXT,
@@ -155,6 +156,9 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 
+	// Add project column if it doesn't exist
+	_, _ = s.db.ExecContext(ctx, "ALTER TABLE packages ADD COLUMN IF NOT EXISTS project TEXT")
+
 	s.logger.Info("database migrations complete")
 	return nil
 }
@@ -173,32 +177,57 @@ func (s *PostgresStore) CreatePackage(ctx context.Context, pkg *Package) error {
 		metadataJSON = []byte("{}")
 	}
 
+	// Serialize compiler settings as JSONB
+	var compilerSettingsJSON []byte
+	if len(pkg.CompilerSettings) > 0 {
+		data, err := json.Marshal(pkg.CompilerSettings)
+		if err != nil {
+			return fmt.Errorf("serializing compiler settings: %w", err)
+		}
+		compilerSettingsJSON = data
+	} else {
+		compilerSettingsJSON = []byte("{}")
+	}
+
 	query := `
-		INSERT INTO packages (id, name, version, chain, builder, compiler_version, compiler_settings, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO packages (id, name, version, project, chain, builder, compiler_version, compiler_settings, metadata)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
-	_, err := s.db.ExecContext(ctx, query, pkg.ID, pkg.Name, pkg.Version, pkg.Chain, pkg.Builder, pkg.CompilerVersion, "{}", metadataJSON)
+	_, err := s.db.ExecContext(ctx, query, pkg.ID, pkg.Name, pkg.Version, nullIfEmpty(pkg.Project), pkg.Chain, pkg.Builder, pkg.CompilerVersion, compilerSettingsJSON, metadataJSON)
 	return err
 }
 
 // GetPackage retrieves a package by name and version
 func (s *PostgresStore) GetPackage(ctx context.Context, name, version string) (*Package, error) {
 	query := `
-		SELECT id, name, version, chain, builder, compiler_version, metadata, created_at
+		SELECT id, name, version, project, chain, builder, compiler_version, compiler_settings, metadata, created_at
 		FROM packages
 		WHERE name = $1 AND version = $2
 	`
 	var pkg Package
 	var createdAt time.Time
+	var project sql.NullString
+	var compilerSettingsJSON []byte
 	var metadataJSON []byte
 	err := s.db.QueryRowContext(ctx, query, name, version).Scan(
-		&pkg.ID, &pkg.Name, &pkg.Version, &pkg.Chain, &pkg.Builder, &pkg.CompilerVersion, &metadataJSON, &createdAt,
+		&pkg.ID, &pkg.Name, &pkg.Version, &project, &pkg.Chain, &pkg.Builder, &pkg.CompilerVersion, &compilerSettingsJSON, &metadataJSON, &createdAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if project.Valid {
+		pkg.Project = project.String
+	}
+
+	// Deserialize compiler settings if present
+	if len(compilerSettingsJSON) > 0 && string(compilerSettingsJSON) != "{}" {
+		if err := json.Unmarshal(compilerSettingsJSON, &pkg.CompilerSettings); err != nil {
+			s.logger.Warn("failed to deserialize compiler settings", "error", err)
+		}
 	}
 
 	// Deserialize metadata if present
@@ -235,42 +264,56 @@ func (s *PostgresStore) GetPackageVersions(ctx context.Context, name string, inc
 
 // ListPackages lists packages with filtering and pagination
 func (s *PostgresStore) ListPackages(ctx context.Context, filter PackageFilter, pagination PaginationParams) (*PaginatedResult[Package], error) {
-	// Build base query with GROUP BY to aggregate versions
+	var whereClauses []string
+	var args []any
+	argIdx := 1
+	addArg := func(v any) int {
+		i := argIdx
+		argIdx++
+		args = append(args, v)
+		return i
+	}
+
+	tablePrefix := ""
 	baseQuery := `
 		SELECT name, chain, builder, array_to_string(array_agg(version ORDER BY created_at DESC), ',') as versions
 		FROM packages
 	`
+	if filter.Contract != "" {
+		tablePrefix = "p."
+		baseQuery = `
+		SELECT p.name, p.chain, p.builder, array_to_string(array_agg(DISTINCT p.version ORDER BY p.version DESC), ',') as versions
+		FROM packages p
+		INNER JOIN contracts c ON c.package_id = p.id AND LOWER(c.name) = LOWER($1)
+		`
+		args = append(args, filter.Contract)
+		argIdx = 2
+	}
 
-	var whereClauses []string
-	var args []any
-	argIdx := 1
-
-	// Add filter conditions
 	if pagination.Cursor != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("name > $%d", argIdx))
-		args = append(args, pagination.Cursor)
-		argIdx++
+		whereClauses = append(whereClauses, fmt.Sprintf("%sname > $%d", tablePrefix, addArg(pagination.Cursor)))
 	}
 	if filter.Query != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("name ILIKE $%d", argIdx))
-		args = append(args, "%"+filter.Query+"%")
-		argIdx++
+		whereClauses = append(whereClauses, fmt.Sprintf("%sname ILIKE $%d", tablePrefix, addArg("%"+filter.Query+"%")))
 	}
 	if filter.Chain != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("chain = $%d", argIdx))
-		args = append(args, filter.Chain)
-		argIdx++
+		whereClauses = append(whereClauses, fmt.Sprintf("%schain = $%d", tablePrefix, addArg(filter.Chain)))
+	}
+	if filter.Project != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("%sproject = $%d", tablePrefix, addArg(filter.Project)))
+	}
+	if filter.Version != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("%sversion = $%d", tablePrefix, addArg(filter.Version)))
 	}
 
-	// Build final query
-	query := baseQuery
-	if len(whereClauses) > 0 {
-		query += " WHERE " + strings.Join(whereClauses, " AND ")
+	if filter.Contract != "" && len(whereClauses) > 0 {
+		baseQuery += " WHERE " + strings.Join(whereClauses, " AND ")
+	} else if filter.Contract == "" && len(whereClauses) > 0 {
+		baseQuery += " WHERE " + strings.Join(whereClauses, " AND ")
 	}
-	query += fmt.Sprintf(" GROUP BY name, chain, builder ORDER BY name LIMIT $%d", argIdx)
-	args = append(args, pagination.Limit+1)
+	baseQuery += fmt.Sprintf(" GROUP BY %sname, %schain, %sbuilder ORDER BY %sname LIMIT $%d", tablePrefix, tablePrefix, tablePrefix, tablePrefix, addArg(pagination.Limit+1))
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.db.QueryContext(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -285,6 +328,11 @@ func (s *PostgresStore) ListPackages(ctx context.Context, filter PackageFilter, 
 		var versions []string
 		if versionsStr != "" {
 			versions = strings.Split(versionsStr, ",")
+		}
+		// Apply latest filter: keep only the latest version by semver
+		if filter.Latest && filter.Project != "" && len(versions) > 1 {
+			latest := latestVersionBySemver(versions)
+			versions = []string{latest}
 		}
 		packages = append(packages, Package{
 			Name:     name,

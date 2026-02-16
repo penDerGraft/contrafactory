@@ -230,9 +230,17 @@ func (b *Builder) Parse(artifactPath string) (*chains.Artifact, error) {
 
 // GenerateVerificationInput extracts Standard JSON Input from build-info
 func (b *Builder) GenerateVerificationInput(dir string, contractName string) ([]byte, error) {
+	vi, err := b.GetVerificationInput(dir, contractName)
+	if err != nil {
+		return nil, err
+	}
+	return vi.StandardJSON, nil
+}
+
+// GetVerificationInput extracts Standard JSON Input and full solc version from build-info
+func (b *Builder) GetVerificationInput(dir string, contractName string) (*chains.VerificationInput, error) {
 	buildInfoDir := filepath.Join(dir, "out", "build-info")
 
-	// Find build-info files
 	entries, err := os.ReadDir(buildInfoDir)
 	if err != nil {
 		return nil, fmt.Errorf("reading build-info directory: %w", err)
@@ -253,8 +261,15 @@ func (b *Builder) GenerateVerificationInput(dir string, contractName string) ([]
 			continue
 		}
 
-		// Return the input field which is the Standard JSON Input
-		return json.Marshal(buildInfo.Input)
+		stdJSON, err := json.Marshal(buildInfo.Input)
+		if err != nil {
+			continue
+		}
+
+		return &chains.VerificationInput{
+			StandardJSON:    stdJSON,
+			SolcLongVersion: buildInfo.SolcLongVersion,
+		}, nil
 	}
 
 	return nil, fmt.Errorf("build-info not found for contract %s", contractName)
@@ -437,9 +452,11 @@ func (s SourcesMeta) FirstLicense() string {
 	return ""
 }
 
-// BuildInfo represents a Foundry build-info file
+// BuildInfo represents a Foundry build-info file (hh-sol-build-info-1 format)
 type BuildInfo struct {
-	ID     string          `json:"id"`
-	Input  json.RawMessage `json:"input"`  // Standard JSON Input
-	Output json.RawMessage `json:"output"` // Compilation output
+	ID              string          `json:"id"`
+	SolcVersion     string          `json:"solcVersion"`     // Short: "0.8.28"
+	SolcLongVersion string          `json:"solcLongVersion"` // Full: "0.8.28+commit.7893614a"
+	Input           json.RawMessage `json:"input"`           // Standard JSON Input
+	Output          json.RawMessage `json:"output"`          // Compilation output
 }
