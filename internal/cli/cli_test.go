@@ -745,6 +745,7 @@ func TestProjectConfig(t *testing.T) {
 		Chain:               "evm",
 		Contracts:           []string{"Token", "Registry"},
 		Exclude:             []string{"Test", "Mock"},
+		ExcludePaths:        []string{"proxy", "examples/MetaCoin.sol"},
 		IncludeDependencies: []string{"TransparentUpgradeableProxy"},
 	}
 
@@ -762,6 +763,7 @@ func TestProjectConfig(t *testing.T) {
 	assert.Equal(t, config.Chain, loaded.Chain)
 	assert.Equal(t, config.Contracts, loaded.Contracts)
 	assert.Equal(t, config.Exclude, loaded.Exclude)
+	assert.Equal(t, config.ExcludePaths, loaded.ExcludePaths)
 	assert.Equal(t, config.IncludeDependencies, loaded.IncludeDependencies)
 }
 

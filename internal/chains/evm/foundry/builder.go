@@ -136,6 +136,16 @@ func (b *Builder) Discover(dir string, opts chains.DiscoverOptions) ([]string, e
 			return nil // Skip artifacts we can't read
 		}
 
+		// Check if this source path should be excluded
+		for _, pattern := range opts.ExcludePaths {
+			if strings.Contains(sourcePath, pattern) {
+				return nil
+			}
+			if matched, _ := filepath.Match(pattern, sourcePath); matched {
+				return nil
+			}
+		}
+
 		// Only include contracts from src/ directory, unless explicitly listed as a dependency
 		if !strings.HasPrefix(sourcePath, "src/") {
 			if !isIncludedDependency(contractName, opts.IncludeDependencies) {
@@ -230,21 +240,28 @@ func (b *Builder) Parse(artifactPath string) (*chains.Artifact, error) {
 
 // GenerateVerificationInput extracts Standard JSON Input from build-info
 func (b *Builder) GenerateVerificationInput(dir string, contractName string) ([]byte, error) {
-	vi, err := b.GetVerificationInput(dir, contractName)
+	vi, err := b.GetVerificationInput(dir, contractName, "")
 	if err != nil {
 		return nil, err
 	}
 	return vi.StandardJSON, nil
 }
 
-// GetVerificationInput extracts Standard JSON Input and full solc version from build-info
-func (b *Builder) GetVerificationInput(dir string, contractName string) (*chains.VerificationInput, error) {
+// buildInfoOutputContracts represents output.contracts from Solidity compiler output
+type buildInfoOutputContracts map[string]map[string]json.RawMessage
+
+// GetVerificationInput extracts Standard JSON Input and full solc version from build-info.
+// When sourcePath is non-empty, finds the build-info whose output contains contracts[sourcePath][contractName].
+// When sourcePath is empty, returns the first valid build-info (legacy behavior).
+func (b *Builder) GetVerificationInput(dir string, contractName string, sourcePath string) (*chains.VerificationInput, error) {
 	buildInfoDir := filepath.Join(dir, "out", "build-info")
 
 	entries, err := os.ReadDir(buildInfoDir)
 	if err != nil {
 		return nil, fmt.Errorf("reading build-info directory: %w", err)
 	}
+
+	var firstMatch *chains.VerificationInput
 
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".json") {
@@ -261,18 +278,183 @@ func (b *Builder) GetVerificationInput(dir string, contractName string) (*chains
 			continue
 		}
 
-		stdJSON, err := json.Marshal(buildInfo.Input)
+		// When sourcePath is set, verify this build-info produced the requested contract
+		if sourcePath != "" {
+			var output struct {
+				Contracts buildInfoOutputContracts `json:"contracts"`
+			}
+			if err := json.Unmarshal(buildInfo.Output, &output); err != nil {
+				continue
+			}
+			if output.Contracts == nil {
+				continue
+			}
+			sourceContracts, ok := output.Contracts[sourcePath]
+			if !ok {
+				continue
+			}
+			if _, ok := sourceContracts[contractName]; !ok {
+				continue
+			}
+		}
+
+		stdJSON, err := stripFoundryStandardJSONKeys(buildInfo.Input)
 		if err != nil {
 			continue
 		}
 
-		return &chains.VerificationInput{
+		vi := &chains.VerificationInput{
 			StandardJSON:    stdJSON,
 			SolcLongVersion: buildInfo.SolcLongVersion,
-		}, nil
+		}
+		if sourcePath != "" {
+			return vi, nil
+		}
+		if firstMatch == nil {
+			firstMatch = vi
+		}
 	}
 
+	if firstMatch != nil {
+		return firstMatch, nil
+	}
 	return nil, fmt.Errorf("build-info not found for contract %s", contractName)
+}
+
+// foundryStandardJSONKeysToStrip are top-level keys Foundry adds that the Solidity compiler rejects.
+// The standard JSON input spec only allows: language, sources, settings.
+var foundryStandardJSONKeysToStrip = []string{"allowPaths", "basePath", "includePaths", "version"}
+
+// stripFoundryStandardJSONKeys removes Foundry-specific keys from standard JSON input
+// so it conforms to the Solidity compiler's expected format.
+func stripFoundryStandardJSONKeys(input json.RawMessage) ([]byte, error) {
+	var m map[string]any
+	if err := json.Unmarshal(input, &m); err != nil {
+		return nil, err
+	}
+	for _, key := range foundryStandardJSONKeysToStrip {
+		delete(m, key)
+	}
+	return json.Marshal(m)
+}
+
+// standardJSONInput is the structure we build for per-contract minimal verification input
+type standardJSONInput struct {
+	Language string                   `json:"language"`
+	Sources  map[string]sourceContent `json:"sources"`
+	Settings standardJSONSettings     `json:"settings"`
+}
+
+type sourceContent struct {
+	Content string `json:"content"`
+}
+
+type standardJSONSettings struct {
+	Optimizer       optimizerSettings              `json:"optimizer"`
+	EVMVersion      string                         `json:"evmVersion,omitempty"`
+	ViaIR           bool                           `json:"viaIR,omitempty"`
+	Libraries       map[string]map[string]string   `json:"libraries,omitempty"`
+	Remappings      []string                       `json:"remappings,omitempty"`
+	Metadata        standardJSONMetadataConfig     `json:"metadata,omitempty"`
+	OutputSelection map[string]map[string][]string `json:"outputSelection"`
+}
+
+type optimizerSettings struct {
+	Enabled bool `json:"enabled"`
+	Runs    int  `json:"runs"`
+}
+
+// standardJSONMetadataConfig holds metadata settings for standard JSON input (not compiler output)
+type standardJSONMetadataConfig struct {
+	BytecodeHash      string `json:"bytecodeHash,omitempty"`
+	UseLiteralContent bool   `json:"useLiteralContent,omitempty"`
+	AppendCBOR        *bool  `json:"appendCBOR,omitempty"`
+}
+
+func outputSelectionForVerification() map[string]map[string][]string {
+	return map[string]map[string][]string{
+		"*": {"*": {"abi", "evm.bytecode", "evm.deployedBytecode", "metadata"}},
+	}
+}
+
+// GeneratePerContractStandardJSON builds a minimal standard JSON input from the artifact's
+// rawMetadata, containing only the contract's actual dependencies. This produces verification
+// input that matches the metadata hash in the bytecode (unlike project-wide build-info).
+func (b *Builder) GeneratePerContractStandardJSON(dir, artifactPath string) ([]byte, error) {
+	data, err := os.ReadFile(artifactPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading artifact: %w", err)
+	}
+
+	var raw FoundryArtifact
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parsing artifact: %w", err)
+	}
+
+	if raw.RawMetadata == "" {
+		return nil, fmt.Errorf("artifact has no rawMetadata")
+	}
+
+	var metadata FoundryMetadata
+	if err := json.Unmarshal([]byte(raw.RawMetadata), &metadata); err != nil {
+		return nil, fmt.Errorf("parsing rawMetadata: %w", err)
+	}
+
+	if len(metadata.Sources) == 0 {
+		return nil, fmt.Errorf("metadata has no sources")
+	}
+
+	// Read each source file from disk
+	sources := make(map[string]sourceContent)
+	for srcPath := range metadata.Sources {
+		fullPath := filepath.Join(dir, srcPath)
+		content, err := os.ReadFile(fullPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading source %s: %w", srcPath, err)
+		}
+		sources[srcPath] = sourceContent{Content: string(content)}
+	}
+
+	// Build settings
+	lang := metadata.Language
+	if lang == "" {
+		lang = "Solidity"
+	}
+
+	opt := metadata.Settings.Optimizer
+	optSettings := optimizerSettings(opt)
+	// Only default runs when optimizer is enabled; when disabled, runs=0 is correct
+	if opt.Enabled && opt.Runs == 0 {
+		optSettings.Runs = 200
+	}
+
+	metaOut := standardJSONMetadataConfig{BytecodeHash: "ipfs"}
+	if metadata.Settings.Metadata != nil {
+		if metadata.Settings.Metadata.BytecodeHash != "" {
+			metaOut.BytecodeHash = metadata.Settings.Metadata.BytecodeHash
+		}
+		metaOut.UseLiteralContent = metadata.Settings.Metadata.UseLiteralContent
+		metaOut.AppendCBOR = metadata.Settings.Metadata.AppendCBOR
+	}
+
+	settings := standardJSONSettings{
+		Optimizer:       optSettings,
+		EVMVersion:      metadata.Settings.EVMVersion,
+		ViaIR:           metadata.Settings.ViaIR,
+		Libraries:       metadata.Settings.Libraries,
+		Remappings:      metadata.Settings.Remappings,
+		Metadata:        metaOut,
+		OutputSelection: outputSelectionForVerification(),
+	}
+	// Omit EVMVersion when empty so solc uses its version-appropriate default
+
+	input := standardJSONInput{
+		Language: lang,
+		Sources:  sources,
+		Settings: settings,
+	}
+
+	return json.MarshalIndent(input, "", "  ")
 }
 
 // FoundryArtifact represents the structure of a Foundry artifact JSON file
@@ -320,14 +502,22 @@ type OutputMeta struct {
 	Userdoc json.RawMessage `json:"userdoc"`
 }
 
+// MetadataSettings contains metadata options for standard JSON (bytecodeHash, useLiteralContent, etc.)
+type MetadataSettings struct {
+	BytecodeHash      string `json:"bytecodeHash,omitempty"`      // default "ipfs"
+	UseLiteralContent bool   `json:"useLiteralContent,omitempty"` // some projects set true
+	AppendCBOR        *bool  `json:"appendCBOR,omitempty"`        // optional
+}
+
 // SettingsMeta contains compiler settings
 type SettingsMeta struct {
-	CompilationTarget map[string]string `json:"compilationTarget"`
-	EVMVersion        string            `json:"evmVersion"`
-	Libraries         map[string]string `json:"libraries"`
-	Optimizer         OptimizerMeta     `json:"optimizer"`
-	Remappings        []string          `json:"remappings"`
-	ViaIR             bool              `json:"viaIR"`
+	CompilationTarget map[string]string            `json:"compilationTarget"`
+	EVMVersion        string                       `json:"evmVersion"`
+	Libraries         map[string]map[string]string `json:"libraries"` // source path -> library name -> address
+	Metadata          *MetadataSettings            `json:"metadata,omitempty"`
+	Optimizer         OptimizerMeta                `json:"optimizer"`
+	Remappings        []string                     `json:"remappings"`
+	ViaIR             bool                         `json:"viaIR"`
 }
 
 // getFirstKey returns the first key from a map

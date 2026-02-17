@@ -74,11 +74,16 @@ func runDiscover(showDeps, showAll bool) error {
 	if projectConfig != nil && len(projectConfig.Exclude) > 0 {
 		excludePatterns = projectConfig.Exclude
 	}
+	var excludePathPatterns []string
+	if projectConfig != nil {
+		excludePathPatterns = projectConfig.ExcludePaths
+	}
 
 	// Discover src contracts
 	if showSrc {
 		discoverOpts := chains.DiscoverOptions{
-			Exclude: excludePatterns,
+			Exclude:      excludePatterns,
+			ExcludePaths: excludePathPatterns,
 		}
 
 		artifactPaths, err := builder.Discover(cwd, discoverOpts)

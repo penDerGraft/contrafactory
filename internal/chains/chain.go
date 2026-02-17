@@ -44,8 +44,10 @@ type Builder interface {
 	Discover(dir string, opts DiscoverOptions) ([]string, error)
 	Parse(artifactPath string) (*Artifact, error)
 	GenerateVerificationInput(dir string, contractName string) ([]byte, error)
-	// GetVerificationInput returns standard JSON input and full solc version (optional, for verification)
-	GetVerificationInput(dir string, contractName string) (*VerificationInput, error)
+	// GetVerificationInput returns standard JSON input and full solc version (optional, for verification).
+	// When sourcePath is non-empty, finds the build-info that produced this contract (matches output.contracts[sourcePath][contractName]).
+	// When sourcePath is empty, returns the first build-info (legacy behavior for single-contract projects).
+	GetVerificationInput(dir string, contractName string, sourcePath string) (*VerificationInput, error)
 
 	// Dependency discovery
 	DiscoverDependencies(dir string) ([]DependencyInfo, error)
@@ -55,8 +57,10 @@ type Builder interface {
 type DiscoverOptions struct {
 	// Contracts to include (empty = all)
 	Contracts []string
-	// Patterns to exclude (e.g., "Test*", "Mock*")
+	// Patterns to exclude by contract name (e.g., "Test*", "Mock*")
 	Exclude []string
+	// Patterns to exclude by source path (substring or glob, e.g., "proxy", "*/proxy/*")
+	ExcludePaths []string
 	// Specific dependency contracts to include from lib/
 	IncludeDependencies []string
 }

@@ -28,6 +28,7 @@ func Execute(version string) error {
 
 	// Add subcommands
 	rootCmd.AddCommand(createPublishCmd())
+	rootCmd.AddCommand(createDeleteCmd())
 	rootCmd.AddCommand(createFetchCmd())
 	rootCmd.AddCommand(createListCmd())
 	rootCmd.AddCommand(createInfoCmd())

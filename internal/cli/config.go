@@ -21,6 +21,7 @@ type ProjectConfig struct {
 	Builder             string        `toml:"builder,omitempty"`
 	Contracts           []string      `toml:"contracts,omitempty"`
 	Exclude             []string      `toml:"exclude,omitempty"`
+	ExcludePaths        []string      `toml:"exclude_paths,omitempty"`
 	IncludeDependencies []string      `toml:"include_dependencies,omitempty"`
 	EVM                 EVMConfigTOML `toml:"evm,omitempty"`
 }
@@ -135,6 +136,9 @@ chain = "evm"
 # Patterns to exclude from publishing
 exclude = ["Test", "Script", "Mock", "Deploy", "Setup"]
 
+# Exclude by source path (substring or glob, e.g. "proxy" or "examples/MetaCoin.sol")
+# exclude_paths = ["proxy", "examples/MetaCoin.sol"]
+
 # Specific contracts to publish (empty = all from src/)
 # contracts = ["MyContract", "OtherContract"]
 
@@ -211,6 +215,9 @@ func runConfigShow() error {
 		}
 		if len(projectConfig.Exclude) > 0 {
 			fmt.Printf("   exclude: %v\n", projectConfig.Exclude)
+		}
+		if len(projectConfig.ExcludePaths) > 0 {
+			fmt.Printf("   exclude_paths: %v\n", projectConfig.ExcludePaths)
 		}
 		if len(projectConfig.IncludeDependencies) > 0 {
 			fmt.Printf("   include_dependencies: %v\n", projectConfig.IncludeDependencies)
