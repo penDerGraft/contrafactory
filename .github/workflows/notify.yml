@@ -1,0 +1,26 @@
+name: Notify Downstream Repos
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:        
+        required: true
+        type: string
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger downstream repo release
+        run: |
+          VERSION="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${{ secrets.DOWNSTREAM_DISPATCH_URL }}" \
+            -d "{\"ref\":\"main\",\"inputs\":{\"version\":\"${VERSION}\"}}" \
+            --fail
