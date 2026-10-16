@@ -6,7 +6,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 )
+
+// unmatchedPath is the path label used for requests that matched no route,
+// so unknown URLs cannot create new time series.
+const unmatchedPath = "unmatched"
 
 // Middleware returns HTTP middleware for request metrics.
 func Middleware(next http.Handler) http.Handler {
@@ -23,8 +29,9 @@ func Middleware(next http.Handler) http.Handler {
 		defer func() {
 			duration := time.Since(start).Seconds()
 
-			// Normalize path to avoid high cardinality from IDs
-			path := normalizePath(r.URL.Path)
+			// Label with the route template, not the request URL, so label
+			// values are bounded by the route table.
+			path := routePattern(r)
 
 			httpRequestsTotal.WithLabelValues(
 				r.Method,
@@ -54,90 +61,17 @@ func (rw *responseWriter) WriteHeader(status int) {
 	rw.ResponseWriter.WriteHeader(status)
 }
 
-// normalizePath converts dynamic path segments to placeholders to avoid
-// high cardinality metrics. For example:
-//
-//	/api/v1/packages/abc123def456/version -> /api/v1/packages/{id}/version
-//	/api/v1/deployments/0x1234.../verify -> /api/v1/deployments/{id}/verify
-func normalizePath(path string) string {
-	// Health check endpoints - keep as-is
-	if path == "/health" || path == "/healthz" || path == "/readyz" {
-		return path
+// routePattern returns the matched route template, for example
+// "/api/v1/packages/{name}/{version}". It must be called after the router has
+// handled the request. Requests that matched no route share a single label.
+func routePattern(r *http.Request) string {
+	rctx := chi.RouteContext(r.Context())
+	if rctx == nil {
+		return unmatchedPath
 	}
-	// Metrics endpoint - keep as-is
-	if path == "/metrics" {
-		return path
+	pattern := rctx.RoutePattern()
+	if pattern == "" || strings.HasSuffix(pattern, "/*") {
+		return unmatchedPath
 	}
-
-	// API v1 paths - normalize dynamic segments
-	// Pattern: /api/v1/{resource}/{id}/{action}
-	// Extract resource type and normalize
-	if strings.HasPrefix(path, "/api/v1/") {
-		parts := strings.Split(path[8:], "/")
-		if len(parts) < 2 {
-			return path
-		}
-		resource := parts[1] // "packages", "deployments", etc.
-
-		// Rebuild with normalized segments
-		var normalized []string
-		normalized = append(normalized, "/api/v1", resource)
-
-		// Add remaining parts, replacing ID segments with placeholders
-		for i := 2; i < len(parts); i++ {
-			part := parts[i]
-			// Skip empty parts
-			if part == "" {
-				continue
-			}
-			// Replace likely ID segments with placeholders
-			if isLikelyID(part) {
-				normalized = append(normalized, "{id}")
-			} else {
-				normalized = append(normalized, part)
-			}
-		}
-		return "/" + strings.Join(normalized, "/")
-	}
-	return path
-}
-
-// isLikelyID returns true if segment looks like an identifier
-func isLikelyID(segment string) bool {
-	// Hash strings (common for transaction IDs, contract addresses)
-	if len(segment) >= 64 && isHex(segment) {
-		return true
-	}
-	// UUIDs with dashes
-	if strings.Count(segment, "-") >= 4 {
-		return true
-	}
-	// Pure numbers (could be chain IDs)
-	if isNumeric(segment) {
-		return true
-	}
-	return false
-}
-
-// isHex returns true if string is hexadecimal (supports both upper and lowercase)
-func isHex(s string) bool {
-	for _, c := range s {
-		isDigit := c >= '0' && c <= '9'
-		isLowerHex := c >= 'a' && c <= 'f'
-		isUpperHex := c >= 'A' && c <= 'F'
-		if !isDigit && !isLowerHex && !isUpperHex {
-			return false
-		}
-	}
-	return len(s) > 0
-}
-
-// isNumeric returns true if string contains only digits
-func isNumeric(s string) bool {
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return len(s) > 0
+	return pattern
 }
